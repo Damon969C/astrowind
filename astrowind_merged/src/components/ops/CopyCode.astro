@@ -1,0 +1,105 @@
+---
+interface Props {
+  code: string;
+  copyMode?: 'single-line' | 'block';
+}
+
+const { code, copyMode = 'single-line' } = Astro.props;
+const lineCount = code.split('\n').filter((line) => line.trim()).length;
+const isBlock = copyMode === 'block';
+const collapsible = lineCount > 10;
+---
+
+<div
+  class:list={[
+    'copy-code group relative overflow-hidden rounded-md border border-slate-800 bg-slate-950 text-slate-100 shadow-sm',
+    isBlock ? 'copy-code-block' : 'copy-code-single',
+    { 'is-collapsed': collapsible },
+  ]}
+>
+  <div class="flex items-center justify-between gap-3 border-b border-white/10 bg-white/5 px-3 py-2">
+    <span class="text-xs font-bold uppercase text-slate-400">{isBlock ? '配置块' : '命令'}</span>
+    <button
+      class="rounded border border-white/10 bg-white/10 px-2.5 py-1 text-xs font-bold text-white transition hover:bg-white/20"
+      type="button"
+      data-copy-code
+    >
+      复制
+    </button>
+  </div>
+  <pre
+    class:list={[
+      'm-0 overflow-x-auto p-3 text-sm leading-6',
+      { 'max-h-64 overflow-hidden': collapsible },
+    ]}><code>{code}</code></pre>
+  {
+    collapsible && (
+      <button
+        class="w-full border-t border-white/10 px-3 py-2 text-xs font-bold text-slate-300 transition hover:bg-white/10"
+        type="button"
+        data-toggle-code
+      >
+        展开
+      </button>
+    )
+  }
+</div>
+
+<script is:inline>
+  if (!window.__opsCopyCodeReady) {
+    window.__opsCopyCodeReady = true;
+
+    document.addEventListener('click', async (event) => {
+      const copyButton = event.target.closest('[data-copy-code]');
+      if (copyButton) {
+        const block = copyButton.closest('.copy-code');
+        const code = block?.querySelector('code')?.innerText || '';
+        let copied = false;
+
+        try {
+          if (navigator.clipboard?.writeText && window.isSecureContext) {
+            await navigator.clipboard.writeText(code);
+            copied = true;
+          }
+        } catch {
+          copied = false;
+        }
+
+        if (!copied) {
+          const textarea = document.createElement('textarea');
+          textarea.value = code;
+          textarea.setAttribute('readonly', '');
+          textarea.style.position = 'fixed';
+          textarea.style.left = '-9999px';
+          document.body.appendChild(textarea);
+          textarea.select();
+          copied = document.execCommand('copy');
+          textarea.remove();
+        }
+
+        const previous = copyButton.textContent;
+        copyButton.textContent = copied ? '已复制' : '复制失败';
+        setTimeout(
+          () => {
+            copyButton.textContent = previous || '复制';
+          },
+          copied ? 1200 : 1800
+        );
+        return;
+      }
+
+      const toggleButton = event.target.closest('[data-toggle-code]');
+      if (toggleButton) {
+        const block = toggleButton.closest('.copy-code');
+        const pre = block?.querySelector('pre');
+        if (!block || !pre) return;
+
+        block.classList.toggle('is-expanded');
+        const expanded = block.classList.contains('is-expanded');
+        pre.classList.toggle('max-h-64', !expanded);
+        pre.classList.toggle('overflow-hidden', !expanded);
+        toggleButton.textContent = expanded ? '折叠' : '展开';
+      }
+    });
+  }
+</script>

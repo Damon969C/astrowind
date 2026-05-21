@@ -1,0 +1,37 @@
+---
+import Layout from '~/layouts/PageLayout.astro';
+import PageHero from '~/components/ops/PageHero.astro';
+import DownloadCard from '~/components/ops/DownloadCard.astro';
+import { downloadCategories, formatBytes } from '~/data/downloads';
+
+export function getStaticPaths() {
+  return downloadCategories.map((category) => ({
+    params: { slug: category.slug },
+    props: { category },
+  }));
+}
+
+const { category } = Astro.props;
+const totalSize = category.items.reduce((sum, item) => sum + item.size, 0);
+const metadata = {
+  title: category.title,
+  description: category.description,
+};
+---
+
+<Layout metadata={metadata}>
+  <PageHero eyebrow="Downloads" title={category.title} summary={category.description} />
+  <section class="mx-auto max-w-7xl px-4 pb-14 sm:px-6">
+    <div class="mb-6 flex flex-wrap gap-2 text-sm font-bold text-muted dark:text-slate-400">
+      <span class="rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-slate-800 dark:bg-slate-900"
+        >{category.items.length} 个文件</span
+      >
+      <span class="rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-slate-800 dark:bg-slate-900"
+        >{formatBytes(totalSize)} 总大小</span
+      >
+    </div>
+    <div class:list={['grid gap-4', category.id === 'picture' ? 'md:grid-cols-2 xl:grid-cols-3' : '']}>
+      {category.items.map((item) => <DownloadCard item={item} />)}
+    </div>
+  </section>
+</Layout>

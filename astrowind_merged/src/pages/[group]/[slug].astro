@@ -1,0 +1,94 @@
+---
+import Layout from '~/layouts/PageLayout.astro';
+import PageHero from '~/components/ops/PageHero.astro';
+import CommandCard from '~/components/ops/CommandCard.astro';
+import { contentPages } from '~/data/content';
+
+export function getStaticPaths() {
+  return contentPages.map((page) => ({
+    params: { group: page.group, slug: page.slug },
+    props: { page },
+  }));
+}
+
+const { page } = Astro.props;
+const metadata = {
+  title: `${page.title} - ${page.groupTitle}`,
+  description: page.summary,
+};
+
+const sectionLinks = page.items.map((item, index) => ({
+  id: `section-${index + 1}`,
+  title: item.title,
+}));
+---
+
+<Layout metadata={metadata}>
+  <PageHero eyebrow={page.groupTitle} title={page.title} summary={page.summary} />
+
+  <section class="mx-auto max-w-7xl px-4 pb-16 sm:px-6">
+    <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_16rem]">
+      <main class="min-w-0">
+        <div class="mb-4 border-y border-gray-200 py-4 dark:border-slate-800">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <label
+              class="flex min-h-11 flex-1 items-center gap-3 rounded-md border border-gray-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950"
+            >
+              <span class="shrink-0 whitespace-nowrap text-sm font-bold text-primary">搜索</span>
+              <input
+                class="w-full bg-transparent text-sm text-gray-900 outline-none placeholder:text-slate-400 dark:text-white"
+                type="search"
+                placeholder="输入关键词筛选本页内容"
+                autocomplete="off"
+                data-filter-input
+              />
+            </label>
+            <div class="text-sm font-bold text-muted dark:text-slate-400">
+              <span data-visible-count>{page.items.length}</span> / {page.items.length}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          {page.items.map((item, index) => <CommandCard item={item} id={sectionLinks[index].id} />)}
+        </div>
+      </main>
+
+      <aside class="hidden lg:block">
+        <nav class="sticky top-24 border-l border-gray-200 pl-5 dark:border-slate-800" aria-label="目录">
+          <p class="mb-4 text-sm font-bold text-gray-900 dark:text-white">目录</p>
+          <ol class="space-y-3 text-sm leading-6">
+            {
+              sectionLinks.map((link) => (
+                <li>
+                  <a class="text-muted transition hover:text-primary dark:text-slate-400" href={`#${link.id}`}>
+                    {link.title}
+                  </a>
+                </li>
+              ))
+            }
+          </ol>
+        </nav>
+      </aside>
+    </div>
+  </section>
+</Layout>
+
+<script is:inline>
+  document.addEventListener('input', (event) => {
+    const input = event.target.closest('[data-filter-input]');
+    if (!input) return;
+
+    const query = input.value.trim().toLowerCase();
+    let visible = 0;
+    document.querySelectorAll('.filter-item').forEach((item) => {
+      const haystack = (item.dataset.filterText || item.textContent || '').toLowerCase();
+      const matched = !query || haystack.includes(query);
+      item.hidden = !matched;
+      if (matched) visible += 1;
+    });
+
+    const count = document.querySelector('[data-visible-count]');
+    if (count) count.textContent = String(visible);
+  });
+</script>

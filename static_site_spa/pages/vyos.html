@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>vyos（一键复制）</title>
+  <style>
+    :root { 
+      --bg:#0b0f16; 
+      --card:#151a22; 
+      --fg:#e8edf2; 
+      --muted:#9aa4af; 
+      --comment:#4ea1ff; 
+      --toc-bg:#111622;
+      --toc-width: 320px;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial;
+      background: var(--bg); 
+      color: var(--fg);
+      position: relative;
+      min-height: 100vh;
+    }
+    
+    /* 目录按钮 */
+    .toc-toggle { 
+      position: fixed; top: 20px; left: 20px; z-index: 1001;
+      background: linear-gradient(135deg, #1c3280, #1a2b55);
+      border: 1px solid #2b5a95; color: white; padding: 10px 16px;
+      border-radius: 8px; cursor: pointer; font-size: 14px;
+      display: flex; align-items: center; gap: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: all 0.3s ease;
+    }
+    .toc-toggle:hover {
+      background: linear-gradient(135deg, #2144a0, #1e3565);
+      transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+    }
+    .toc-toggle:active { transform: translateY(0); }
+    .toc-toggle svg { width: 18px; height: 18px; }
+    
+    /* 目录侧边栏 */
+    .toc { 
+      position: fixed; top: 0; left: 0; width: var(--toc-width); height: 100vh;
+      background: var(--toc-bg); padding: 80px 20px 20px; overflow-y: auto;
+      z-index: 1000; transform: translateX(-100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 4px 0 20px rgba(0,0,0,0.5); border-right: 1px solid #1a2030;
+    }
+    .toc.open { transform: translateX(0); }
+    
+    /* 遮罩层 */
+    .toc-overlay { 
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.5); z-index: 999;
+      opacity: 0; visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+    .toc-overlay.open { opacity: 1; visibility: visible; }
+    
+    .toc h2 { font-size: 20px; margin-bottom: 16px; color: var(--comment); font-weight: 600; }
+    .toc-list { list-style: none; padding: 0; margin: 0; }
+    .toc-list ul { list-style: none; padding-left: 20px; margin: 4px 0; }
+    .toc-list li { margin: 6px 0; }
+    .toc-list a { 
+      color: var(--fg); text-decoration: none; display: block;
+      padding: 4px 8px; border-radius: 6px; transition: all 0.2s ease;
+      font-size: 14px; line-height: 1.4;
+    }
+    .toc-list a:hover { background: rgba(78, 161, 255, 0.1); color: var(--comment); padding-left: 12px; }
+    .toc-empty { color: var(--muted); font-style: italic; padding: 20px; text-align: center; }
+    
+    /* 主内容区 */
+    .main { padding: 32px; max-width: 1400px; margin: 0 auto; }
+    h1 { font-size: 28px; margin-bottom: 8px; font-weight: 600; }
+    .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; }
+    .topbar { margin-bottom: 20px; padding-top: 50px; }
+    .search { margin-top: 16px; }
+    .search input {
+      width: 100%; max-width: 500px; padding: 10px 16px;
+      border-radius: 10px; border: 1px solid #223049; 
+      background: #0f1522; color: var(--fg);
+      outline: none; font-size: 14px; transition: all 0.2s ease;
+    }
+    .search input:focus { border-color: #2b5a95; background: #121826; }
+    .counter { 
+      color: var(--muted); font-size: 14px; margin-bottom: 20px;
+      padding: 8px 12px; background: rgba(21, 26, 34, 0.5);
+      border-radius: 8px; display: inline-block;
+    }
+    .list { display: flex; flex-direction: column; gap: 12px; }
+    .card {
+      background: var(--card); border: 1px solid #222a35;
+      border-radius: 10px; padding: 12px 14px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+      display: flex; flex-direction: column; gap: 8px;
+      transition: all 0.2s ease;
+    }
+    .card:hover { border-color: #2a3445; box-shadow: 0 4px 14px rgba(0,0,0,0.35); }
+    .card.nested { margin-left: 20px; background: rgba(21, 26, 34, 0.6); border-color: #1a2030; }
+    .card.nested.level-2 { margin-left: 40px; background: rgba(21, 26, 34, 0.4); }
+    .card.nested.level-3 { margin-left: 60px; background: rgba(21, 26, 34, 0.3); }
+    .comment { font-size: 13px; color: var(--comment); font-weight: 500; }
+    .comment.no-text { color: var(--muted); font-style: italic; font-size: 12px; }
+    .top-comment { font-size: 16px; font-weight: bold; color: var(--comment); }
+    
+    .cmdline {
+      display: flex; 
+      align-items: center; 
+      justify-content: space-between;
+      background: #0f1522; 
+      border: 1px dashed #293240; 
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace; 
+      font-size: 15px; /* <-- 优化: 再次增大字体 */
+      font-weight: 600;
+      color: var(--fg);
+      margin-top: 4px;
+      transition: all 0.2s ease;
+    }
+    .cmdline:hover { background: #111826; border-color: #344050; }
+
+    .codeblock-container {
+      position: relative;
+      margin-top: 4px;
+      padding-bottom: 10px; /* 为下方的 toggle 按钮留出空间 */
+    }
+    .codeblock {
+      background: #0f1522; border: 1px dashed #293240;
+      border-radius: 8px; padding: 8px 12px;
+      font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
+      color: var(--fg); transition: all 0.2s ease;
+      white-space: pre-wrap; word-wrap: break-word; overflow: hidden;
+    }
+    .codeblock:hover { background: #111826; border-color: #344050; }
+    .codeblock code { 
+      display: block; 
+      white-space: pre; 
+      font-size: 16px; /* <-- 优化: 再次增大字体 */
+      font-weight: 700; /* <-- Bug修复: 确保代码块内文本加粗 */
+    }
+    .codeblock.preview { 
+      max-height: 3.4em; /* 调整高度以适应新字号 */
+      overflow: hidden; 
+    }
+
+    .toggle {
+      position: absolute;
+      bottom: -10px; /* <-- 优化: 移动到下边缘 */
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--card); /* <-- 优化: 增加背景使其更明显 */
+      border: 1px solid #293240;
+      border-radius: 50%;
+      color: var(--muted); 
+      cursor: pointer;
+      font-size: 12px; 
+      padding: 0;
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      z-index: 1;
+    }
+    .toggle:hover { color: var(--fg); border-color: var(--comment); }
+    
+    /* 基础复制按钮样式 (用于Flexbox) */
+    button.copy {
+      cursor: pointer;
+      border: 1px solid #2b5a95;
+      background: linear-gradient(180deg, #1c3280, #1a2b55);
+      color: white; padding: 4px 10px; border-radius: 6px;
+      font-size: 12px; margin-left: 8px; transition: all 0.2s ease;
+      font-weight: 500; white-space: nowrap; flex-shrink: 0;
+    }
+    
+    /* 多行代码块容器内的复制按钮，使用绝对定位 */
+    .codeblock-container button.copy {
+      position: absolute;
+      top: 28px;
+      right: 16px;
+      margin-left: 0;
+      z-index: 1; /* 确保在代码之上 */
+    }
+
+    button.copy:hover {
+      background: linear-gradient(180deg, #2144a0, #1e3565);
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    button.copy:active { 
+      transform: translateY(0) scale(0.98);
+    }
+    button.copy:disabled {
+      background: linear-gradient(180deg, #0f8040, #0a6030);
+      border-color: #0a6030;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+    
+    /* 响应式设计 */
+    @media (max-width: 768px) {
+      .toc { width: 280px; padding: 70px 16px 16px; }
+      .main { padding: 20px; }
+      .topbar { padding-top: 60px; }
+      h1 { font-size: 24px; }
+      .card.nested { margin-left: 12px; }
+      .card.nested.level-2 { margin-left: 24px; }
+      .card.nested.level-3 { margin-left: 36px; }
+    }
+    
+    /* 滚动条样式 */
+    .toc::-webkit-scrollbar { width: 8px; }
+    .toc::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); border-radius: 4px; }
+    .toc::-webkit-scrollbar-thumb { background: rgba(78, 161, 255, 0.3); border-radius: 4px; }
+    .toc::-webkit-scrollbar-thumb:hover { background: rgba(78, 161, 255, 0.5); }
+  </style>
+</head>
+<body>
+  <button class="toc-toggle" onclick="toggleToc()">
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+    <span>目录</span>
+  </button>
+  <div class="toc-overlay" onclick="closeToc()"></div>
+  <div class="toc">
+    <h2>📑 目录</h2>
+    <ul class="toc-list"><li><a href="#block-1" onclick="closeToc()">1. 安装</a></li><li><a href="#block-2" onclick="closeToc()">2. 网口配置</a></li><ul><li><a href="#block-2-1" onclick="closeToc()">2.1. eth0 vmbr</a></li><li><a href="#block-2-2" onclick="closeToc()">2.2. eth0</a></li><li><a href="#block-2-3" onclick="closeToc()">2.3. eth1</a></li><li><a href="#block-2-4" onclick="closeToc()">2.4. eth2</a></li></ul><li><a href="#block-3" onclick="closeToc()">3. 设置lan</a></li><ul><li><a href="#block-3-1" onclick="closeToc()">3.1. LAN</a></li><li><a href="#block-3-2" onclick="closeToc()">3.2. DHCP</a></li><ul><li><a href="#block-3-2-1" onclick="closeToc()">3.2.1. VYOS 1.5</a></li><li><a href="#block-3-2-2" onclick="closeToc()">3.2.2. VYOS 1.4.3</a></li></ul><li><a href="#block-3-3" onclick="closeToc()">3.3. 重启</a></li></ul><li><a href="#block-4" onclick="closeToc()">4. 设置时区</a></li><li><a href="#block-5" onclick="closeToc()">5. 设置wan</a></li><ul><li><a href="#block-5-3" onclick="closeToc()">5.3. PPPOE</a></li><li><a href="#block-5-4" onclick="closeToc()">5.4. PPPOE IPV6</a></li></ul><li><a href="#block-6" onclick="closeToc()">6. DNS</a></li><li><a href="#block-7" onclick="closeToc()">7. 防火墙</a></li><ul><li><a href="#block-7-3" onclick="closeToc()">7.3. VYOS 1.5</a></li><li><a href="#block-7-4" onclick="closeToc()">7.4. VYOS 1.4.3</a></li></ul><li><a href="#block-8" onclick="closeToc()">8. 访问192.168.1.1</a></li><li><a href="#block-9" onclick="closeToc()">9. 指定ipv6放行</a></li><li><a href="#block-10" onclick="closeToc()">10. 静态ip</a></li><ul><li><a href="#block-10-1" onclick="closeToc()">10.1. VYOS 1.5</a></li><li><a href="#block-10-2" onclick="closeToc()">10.2. VYOS 1.4.3</a></li></ul><li><a href="#block-11" onclick="closeToc()">11. WAN DHCP</a></li><ul><li><a href="#block-11-1" onclick="closeToc()">11.1. WAN</a></li><li><a href="#block-11-2" onclick="closeToc()">11.2. LAN</a></li></ul><li><a href="#block-12" onclick="closeToc()">12. 流量整形</a></li><li><a href="#block-13" onclick="closeToc()">13. SSH密钥</a></li></ul>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div><h1>vyos</h1><div class="sub">单列展示 · 支持嵌套块 · 层级编号 · 自动目录 · 即时搜索</div></div>
+      <div class="search"><input id="q" type="search" placeholder="🔍 搜索命令或注释…" /></div>
+    </div>
+    <div class="counter">共 <span id="total"></span> 条命令</div>
+    <div id="list" class="list">
+
+        <div class="card" data-text="安装">
+          <div class="comment top-comment" id="block-1">1. 安装</div>
+          
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-1">1.1</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-1-1-1">1.1.1</div>
+          <div class="cmdline" data-text="vyos"><span>vyos</span><button class="copy" onclick="copyText(&#x27;vyos&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-1-1-2">1.1.2</div>
+          <div class="cmdline" data-text="install image"><span>install image</span><button class="copy" onclick="copyText(&#x27;install image&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-2">1.2</div>
+          <div class="cmdline" data-text="show interfaces"><span>show interfaces</span><button class="copy" onclick="copyText(&#x27;show interfaces&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-3">1.3</div>
+          <div class="cmdline" data-text="configure"><span>configure</span><button class="copy" onclick="copyText(&#x27;configure&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-4">1.4</div>
+          <div class="cmdline" data-text="monitor log"><span>monitor log</span><button class="copy" onclick="copyText(&#x27;monitor log&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-5">1.5</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-1-5-1">1.5.1</div>
+          <div class="cmdline" data-text="sudo systemctl stop serial-getty@ttys0.service"><span>sudo systemctl stop serial-getty@ttyS0.service</span><button class="copy" onclick="copyText(&#x27;sudo systemctl stop serial-getty@ttyS0.service&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-1-5-2">1.5.2</div>
+          <div class="cmdline" data-text="sudo systemctl disable serial-getty@ttys0.service"><span>sudo systemctl disable serial-getty@ttyS0.service</span><button class="copy" onclick="copyText(&#x27;sudo systemctl disable serial-getty@ttyS0.service&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        </div>
+        <div class="card" data-text="网口配置">
+          <div class="comment top-comment" id="block-2">2. 网口配置</div>
+          
+        <div class="card nested" data-text="eth0 vmbr">
+          <div class="comment" id="block-2-1">2.1. eth0 vmbr</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-1-1">2.1.1</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload hw-tc-offload"><span>set interfaces ethernet eth0 offload hw-tc-offload</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload hw-tc-offload&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-1-2">2.1.2</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload lro"><span>set interfaces ethernet eth0 offload lro</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload lro&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-1-3">2.1.3</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload rfs"><span>set interfaces ethernet eth0 offload rfs</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload rfs&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-1-4">2.1.4</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload rps"><span>set interfaces ethernet eth0 offload rps</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload rps&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-1-5">2.1.5</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload gro"><span>set interfaces ethernet eth0 offload gro</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload gro&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-1-6">2.1.6</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload gso"><span>set interfaces ethernet eth0 offload gso</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload gso&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-1-7">2.1.7</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload sg"><span>set interfaces ethernet eth0 offload sg</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload sg&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-1-8">2.1.8</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload tso"><span>set interfaces ethernet eth0 offload tso</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload tso&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested" data-text="eth0">
+          <div class="comment" id="block-2-2">2.2. eth0</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-2-1">2.2.1</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload hw-tc-offload"><span>set interfaces ethernet eth0 offload hw-tc-offload</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload hw-tc-offload&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-2-2">2.2.2</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload lro"><span>set interfaces ethernet eth0 offload lro</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload lro&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-2-3">2.2.3</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload rfs"><span>set interfaces ethernet eth0 offload rfs</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload rfs&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-2-4">2.2.4</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload rps"><span>set interfaces ethernet eth0 offload rps</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload rps&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-2-5">2.2.5</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload gro"><span>set interfaces ethernet eth0 offload gro</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload gro&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-2-6">2.2.6</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload gso"><span>set interfaces ethernet eth0 offload gso</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload gso&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-2-7">2.2.7</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload sg"><span>set interfaces ethernet eth0 offload sg</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload sg&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-2-8">2.2.8</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 offload tso"><span>set interfaces ethernet eth0 offload tso</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 offload tso&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-2-9">2.2.9</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 ring-buffer rx 4096"><span>set interfaces ethernet eth0 ring-buffer rx 4096</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 ring-buffer rx 4096&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-2-10">2.2.10</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 ring-buffer tx 4096"><span>set interfaces ethernet eth0 ring-buffer tx 4096</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 ring-buffer tx 4096&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested" data-text="eth1">
+          <div class="comment" id="block-2-3">2.3. eth1</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-3-1">2.3.1</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 offload gro"><span>set interfaces ethernet eth1 offload gro</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth1 offload gro&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-3-2">2.3.2</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 offload gso"><span>set interfaces ethernet eth1 offload gso</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth1 offload gso&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-3-3">2.3.3</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 offload hw-tc-offload"><span>set interfaces ethernet eth1 offload hw-tc-offload</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth1 offload hw-tc-offload&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-3-4">2.3.4</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 offload lro"><span>set interfaces ethernet eth1 offload lro</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth1 offload lro&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-3-5">2.3.5</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 offload rfs"><span>set interfaces ethernet eth1 offload rfs</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth1 offload rfs&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-3-6">2.3.6</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 offload rps"><span>set interfaces ethernet eth1 offload rps</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth1 offload rps&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-3-7">2.3.7</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 offload sg"><span>set interfaces ethernet eth1 offload sg</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth1 offload sg&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-3-8">2.3.8</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 offload tso"><span>set interfaces ethernet eth1 offload tso</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth1 offload tso&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-3-9">2.3.9</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 ring-buffer rx '4096'"><span>set interfaces ethernet eth1 ring-buffer rx '4096'</span><button class="copy" onclick="copyText(&quot;set interfaces ethernet eth1 ring-buffer rx &#x27;4096&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-3-10">2.3.10</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 ring-buffer tx '4096'"><span>set interfaces ethernet eth1 ring-buffer tx '4096'</span><button class="copy" onclick="copyText(&quot;set interfaces ethernet eth1 ring-buffer tx &#x27;4096&#x27;&quot;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested" data-text="eth2">
+          <div class="comment" id="block-2-4">2.4. eth2</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-4-1">2.4.1</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth2 offload gro"><span>set interfaces ethernet eth2 offload gro</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth2 offload gro&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-4-2">2.4.2</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth2 offload gso"><span>set interfaces ethernet eth2 offload gso</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth2 offload gso&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-4-3">2.4.3</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth2 offload hw-tc-offload"><span>set interfaces ethernet eth2 offload hw-tc-offload</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth2 offload hw-tc-offload&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-4-4">2.4.4</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth2 offload lro"><span>set interfaces ethernet eth2 offload lro</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth2 offload lro&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-4-5">2.4.5</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth2 offload rfs"><span>set interfaces ethernet eth2 offload rfs</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth2 offload rfs&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-4-6">2.4.6</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth2 offload rps"><span>set interfaces ethernet eth2 offload rps</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth2 offload rps&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-4-7">2.4.7</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth2 offload sg"><span>set interfaces ethernet eth2 offload sg</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth2 offload sg&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-4-8">2.4.8</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth2 offload tso"><span>set interfaces ethernet eth2 offload tso</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth2 offload tso&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-4-9">2.4.9</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth2 ring-buffer rx '4096'"><span>set interfaces ethernet eth2 ring-buffer rx '4096'</span><button class="copy" onclick="copyText(&quot;set interfaces ethernet eth2 ring-buffer rx &#x27;4096&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-2-4-10">2.4.10</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth2 ring-buffer tx '4096'"><span>set interfaces ethernet eth2 ring-buffer tx '4096'</span><button class="copy" onclick="copyText(&quot;set interfaces ethernet eth2 ring-buffer tx &#x27;4096&#x27;&quot;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-2-5">2.5</div>
+          <div class="cmdline" data-text="commit"><span>commit</span><button class="copy" onclick="copyText(&#x27;commit&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-2-6">2.6</div>
+          <div class="cmdline" data-text="save"><span>save</span><button class="copy" onclick="copyText(&#x27;save&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card" data-text="设置lan">
+          <div class="comment top-comment" id="block-3">3. 设置lan</div>
+          
+        <div class="card nested" data-text="lan">
+          <div class="comment" id="block-3-1">3.1. LAN</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-3-1-1">3.1.1</div>
+          <div class="cmdline" data-text="set interfaces bridge br0"><span>set interfaces bridge br0</span><button class="copy" onclick="copyText(&#x27;set interfaces bridge br0&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-3-1-2">3.1.2</div>
+          <div class="cmdline" data-text="set interfaces bridge br0 description lan"><span>set interfaces bridge br0 description LAN</span><button class="copy" onclick="copyText(&#x27;set interfaces bridge br0 description LAN&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-3-1-3">3.1.3</div>
+          <div class="cmdline" data-text="set interfaces bridge br0 member interface eth0"><span>set interfaces bridge br0 member interface eth0</span><button class="copy" onclick="copyText(&#x27;set interfaces bridge br0 member interface eth0&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-3-1-4">3.1.4</div>
+          <div class="cmdline" data-text="set interfaces bridge br0 address 10.0.0.1/24"><span>set interfaces bridge br0 address 10.0.0.1/24</span><button class="copy" onclick="copyText(&#x27;set interfaces bridge br0 address 10.0.0.1/24&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested" data-text="dhcp">
+          <div class="comment" id="block-3-2">3.2. DHCP</div>
+          
+        <div class="card nested level-2" data-text="vyos 1.5">
+          <div class="comment" id="block-3-2-1">3.2.1. VYOS 1.5</div>
+          
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-1-1">3.2.1.1</div>
+          <div class="cmdline" data-text="set service dhcp-server hostfile-update"><span>set service dhcp-server hostfile-update</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server hostfile-update&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-1-2">3.2.1.2</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan authoritative"><span>set service dhcp-server shared-network-name LAN authoritative</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN authoritative&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-1-3">3.2.1.3</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan option ntp-server 10.0.0.1"><span>set service dhcp-server shared-network-name LAN option ntp-server 10.0.0.1</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN option ntp-server 10.0.0.1&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-1-4">3.2.1.4</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan option time-zone asia/shanghai"><span>set service dhcp-server shared-network-name LAN option time-zone Asia/Shanghai</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN option time-zone Asia/Shanghai&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-1-5">3.2.1.5</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 subnet-id 1"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 subnet-id 1</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 subnet-id 1&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-1-6">3.2.1.6</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 option default-router 10.0.0.1"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 option default-router 10.0.0.1</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 option default-router 10.0.0.1&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-1-7">3.2.1.7</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 option name-server 10.0.0.1"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 option name-server 10.0.0.1</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 option name-server 10.0.0.1&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-1-8">3.2.1.8</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 range 0 start 10.0.0.55"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 range 0 start 10.0.0.55</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 range 0 start 10.0.0.55&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-1-9">3.2.1.9</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 range 0 stop 10.0.0.254"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 range 0 stop 10.0.0.254</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 range 0 stop 10.0.0.254&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-1-10">3.2.1.10</div>
+          <div class="cmdline" data-text="show service dhcp-server"><span>show service dhcp-server</span><button class="copy" onclick="copyText(&#x27;show service dhcp-server&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-1-11">3.2.1.11</div>
+          <div class="cmdline" data-text="set service ssh listen-address 10.0.0.1"><span>set service ssh listen-address 10.0.0.1</span><button class="copy" onclick="copyText(&#x27;set service ssh listen-address 10.0.0.1&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested level-2" data-text="vyos 1.4.3">
+          <div class="comment" id="block-3-2-2">3.2.2. VYOS 1.4.3</div>
+          
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-2-1">3.2.2.1</div>
+          <div class="cmdline" data-text="set service dhcp-server hostfile-update"><span>set service dhcp-server hostfile-update</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server hostfile-update&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-2-2">3.2.2.2</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan authoritative"><span>set service dhcp-server shared-network-name LAN authoritative</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN authoritative&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-2-3">3.2.2.3</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan ntp-server 10.0.0.1"><span>set service dhcp-server shared-network-name LAN ntp-server 10.0.0.1</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN ntp-server 10.0.0.1&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-2-4">3.2.2.4</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 default-router 10.0.0.1"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 default-router 10.0.0.1</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 default-router 10.0.0.1&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-2-5">3.2.2.5</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 name-server 10.0.0.1"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 name-server 10.0.0.1</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 name-server 10.0.0.1&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-2-6">3.2.2.6</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 lease 10800"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 lease 10800</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 lease 10800&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-2-7">3.2.2.7</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 range 0 start 10.0.0.55"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 range 0 start 10.0.0.55</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 range 0 start 10.0.0.55&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-2-8">3.2.2.8</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 range 0 stop 10.0.0.254"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 range 0 stop 10.0.0.254</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 range 0 stop 10.0.0.254&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-2-9">3.2.2.9</div>
+          <div class="cmdline" data-text="show service dhcp-server"><span>show service dhcp-server</span><button class="copy" onclick="copyText(&#x27;show service dhcp-server&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-3-2-2-10">3.2.2.10</div>
+          <div class="cmdline" data-text="set service ssh listen-address 10.0.0.1"><span>set service ssh listen-address 10.0.0.1</span><button class="copy" onclick="copyText(&#x27;set service ssh listen-address 10.0.0.1&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-3-2-3">3.2.3</div>
+          <div class="cmdline" data-text="commit"><span>commit</span><button class="copy" onclick="copyText(&#x27;commit&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-3-2-4">3.2.4</div>
+          <div class="cmdline" data-text="save"><span>save</span><button class="copy" onclick="copyText(&#x27;save&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested" data-text="重启">
+          <div class="comment" id="block-3-3">3.3. 重启</div>
+          <div class="cmdline" data-text="reboot"><span>reboot</span><button class="copy" onclick="copyText(&#x27;reboot&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card" data-text="设置时区">
+          <div class="comment top-comment" id="block-4">4. 设置时区</div>
+          
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-4-1">4.1</div>
+          <div class="cmdline" data-text="set system time-zone asia/shanghai"><span>set system time-zone Asia/Shanghai</span><button class="copy" onclick="copyText(&#x27;set system time-zone Asia/Shanghai&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-4-2">4.2</div>
+          <div class="cmdline" data-text="set service ntp server ntp.aliyun.com"><span>set service ntp server ntp.aliyun.com</span><button class="copy" onclick="copyText(&#x27;set service ntp server ntp.aliyun.com&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-4-3">4.3</div>
+          <div class="cmdline" data-text="set service ntp server 203.107.6.88"><span>set service ntp server 203.107.6.88</span><button class="copy" onclick="copyText(&#x27;set service ntp server 203.107.6.88&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-4-4">4.4</div>
+          <div class="cmdline" data-text="set service ntp server 129.250.35.251"><span>set service ntp server 129.250.35.251</span><button class="copy" onclick="copyText(&#x27;set service ntp server 129.250.35.251&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-4-5">4.5</div>
+          <div class="cmdline" data-text="delete service ntp server time1.vyos.net"><span>delete service ntp server time1.vyos.net</span><button class="copy" onclick="copyText(&#x27;delete service ntp server time1.vyos.net&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-4-6">4.6</div>
+          <div class="cmdline" data-text="delete service ntp server time2.vyos.net"><span>delete service ntp server time2.vyos.net</span><button class="copy" onclick="copyText(&#x27;delete service ntp server time2.vyos.net&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-4-7">4.7</div>
+          <div class="cmdline" data-text="delete service ntp server time3.vyos.net"><span>delete service ntp server time3.vyos.net</span><button class="copy" onclick="copyText(&#x27;delete service ntp server time3.vyos.net&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-4-8">4.8</div>
+          <div class="cmdline" data-text="show service ntp"><span>show service ntp</span><button class="copy" onclick="copyText(&#x27;show service ntp&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card" data-text="设置wan">
+          <div class="comment top-comment" id="block-5">5. 设置wan</div>
+          
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-5-1">5.1</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 address 192.168.1.10/24"><span>set interfaces ethernet eth1 address 192.168.1.10/24</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth1 address 192.168.1.10/24&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-5-2">5.2</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 description wan"><span>set interfaces ethernet eth1 description WAN</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth1 description WAN&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="pppoe">
+          <div class="comment" id="block-5-3">5.3. PPPOE</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-3-1">5.3.1</div>
+          <div class="cmdline" data-text="set interfaces pppoe pppoe0 description zgyd"><span>set interfaces pppoe pppoe0 description ZGYD</span><button class="copy" onclick="copyText(&#x27;set interfaces pppoe pppoe0 description ZGYD&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-3-2">5.3.2</div>
+          <div class="cmdline" data-text="set interfaces pppoe pppoe0 source-interface eth1"><span>set interfaces pppoe pppoe0 source-interface eth1</span><button class="copy" onclick="copyText(&#x27;set interfaces pppoe pppoe0 source-interface eth1&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-3-3">5.3.3</div>
+          <div class="cmdline" data-text="set interfaces pppoe pppoe0 authentication username number"><span>set interfaces pppoe pppoe0 authentication username NUMBER</span><button class="copy" onclick="copyText(&#x27;set interfaces pppoe pppoe0 authentication username NUMBER&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-3-4">5.3.4</div>
+          <div class="cmdline" data-text="set interfaces pppoe pppoe0 authentication username number"><span>set interfaces pppoe pppoe0 authentication username NUMBER</span><button class="copy" onclick="copyText(&#x27;set interfaces pppoe pppoe0 authentication username NUMBER&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-3-5">5.3.5</div>
+          <div class="cmdline" data-text="set interfaces pppoe pppoe0 authentication password password"><span>set interfaces pppoe pppoe0 authentication password PASSWORD</span><button class="copy" onclick="copyText(&#x27;set interfaces pppoe pppoe0 authentication password PASSWORD&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-3-6">5.3.6</div>
+          <div class="cmdline" data-text="set interfaces pppoe pppoe0 mtu 1492"><span>set interfaces pppoe pppoe0 mtu 1492</span><button class="copy" onclick="copyText(&#x27;set interfaces pppoe pppoe0 mtu 1492&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-3-7">5.3.7</div>
+          <div class="cmdline" data-text="set interfaces pppoe pppoe0 ip adjust-mss clamp-mss-to-pmtu"><span>set interfaces pppoe pppoe0 ip adjust-mss clamp-mss-to-pmtu</span><button class="copy" onclick="copyText(&#x27;set interfaces pppoe pppoe0 ip adjust-mss clamp-mss-to-pmtu&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested" data-text="pppoe ipv6">
+          <div class="comment" id="block-5-4">5.4. PPPOE IPV6</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-4-1">5.4.1</div>
+          <div class="cmdline" data-text="set interfaces pppoe pppoe0 ipv6 address autoconf"><span>set interfaces pppoe pppoe0 ipv6 address autoconf</span><button class="copy" onclick="copyText(&#x27;set interfaces pppoe pppoe0 ipv6 address autoconf&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-4-2">5.4.2</div>
+          <div class="cmdline" data-text="set interfaces pppoe pppoe0 ipv6 adjust-mss clamp-mss-to-pmtu"><span>set interfaces pppoe pppoe0 ipv6 adjust-mss clamp-mss-to-pmtu</span><button class="copy" onclick="copyText(&#x27;set interfaces pppoe pppoe0 ipv6 adjust-mss clamp-mss-to-pmtu&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-4-3">5.4.3</div>
+          <div class="cmdline" data-text="set interfaces pppoe pppoe0 dhcpv6-options pd 0 interface br0"><span>set interfaces pppoe pppoe0 dhcpv6-options pd 0 interface br0</span><button class="copy" onclick="copyText(&#x27;set interfaces pppoe pppoe0 dhcpv6-options pd 0 interface br0&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-4-4">5.4.4</div>
+          <div class="cmdline" data-text="set interfaces pppoe pppoe0 dhcpv6-options pd 0 interface br0 address 1"><span>set interfaces pppoe pppoe0 dhcpv6-options pd 0 interface br0 address 1</span><button class="copy" onclick="copyText(&#x27;set interfaces pppoe pppoe0 dhcpv6-options pd 0 interface br0 address 1&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-4-5">5.4.5</div>
+          <div class="cmdline" data-text="set interfaces pppoe pppoe0 dhcpv6-options pd 0 interface br0 sla-id 0"><span>set interfaces pppoe pppoe0 dhcpv6-options pd 0 interface br0 sla-id 0</span><button class="copy" onclick="copyText(&#x27;set interfaces pppoe pppoe0 dhcpv6-options pd 0 interface br0 sla-id 0&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-4-6">5.4.6</div>
+          <div class="cmdline" data-text="set interfaces pppoe pppoe0 dhcpv6-options pd 0 length 60"><span>set interfaces pppoe pppoe0 dhcpv6-options pd 0 length 60</span><button class="copy" onclick="copyText(&#x27;set interfaces pppoe pppoe0 dhcpv6-options pd 0 length 60&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-5-4-7">5.4.7</div>
+          <div class="cmdline" data-text="set service router-advert interface br0 prefix ::/64 valid-lifetime '172800'"><span>set service router-advert interface br0 prefix ::/64 valid-lifetime '172800'</span><button class="copy" onclick="copyText(&quot;set service router-advert interface br0 prefix ::/64 valid-lifetime &#x27;172800&#x27;&quot;, this)">复制</button></div>
+        </div>
+        </div>
+        </div>
+        <div class="card" data-text="dns">
+          <div class="comment top-comment" id="block-6">6. DNS</div>
+          
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-6-1">6.1</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-6-1-1">6.1.1</div>
+          <div class="cmdline" data-text="set system name-server 180.76.76.76"><span>set system name-server 180.76.76.76</span><button class="copy" onclick="copyText(&#x27;set system name-server 180.76.76.76&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-6-1-2">6.1.2</div>
+          <div class="cmdline" data-text="set system name-server 223.5.5.5"><span>set system name-server 223.5.5.5</span><button class="copy" onclick="copyText(&#x27;set system name-server 223.5.5.5&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-6-1-3">6.1.3</div>
+          <div class="cmdline" data-text="set service dns forwarding cache-size 0"><span>set service dns forwarding cache-size 0</span><button class="copy" onclick="copyText(&#x27;set service dns forwarding cache-size 0&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-6-1-4">6.1.4</div>
+          <div class="cmdline" data-text="set service dns forwarding listen-address 10.0.0.1"><span>set service dns forwarding listen-address 10.0.0.1</span><button class="copy" onclick="copyText(&#x27;set service dns forwarding listen-address 10.0.0.1&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-6-1-5">6.1.5</div>
+          <div class="cmdline" data-text="set service dns forwarding allow-from 10.0.0.0/24"><span>set service dns forwarding allow-from 10.0.0.0/24</span><button class="copy" onclick="copyText(&#x27;set service dns forwarding allow-from 10.0.0.0/24&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-6-1-6">6.1.6</div>
+          <div class="cmdline" data-text="set service dns forwarding system"><span>set service dns forwarding system</span><button class="copy" onclick="copyText(&#x27;set service dns forwarding system&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-6-2">6.2</div>
+          <div class="cmdline" data-text="set nat source rule 10 outbound-interface name pppoe0"><span>set nat source rule 10 outbound-interface name pppoe0</span><button class="copy" onclick="copyText(&#x27;set nat source rule 10 outbound-interface name pppoe0&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-6-3">6.3</div>
+          <div class="cmdline" data-text="set nat source rule 10 translation address masquerade"><span>set nat source rule 10 translation address masquerade</span><button class="copy" onclick="copyText(&#x27;set nat source rule 10 translation address masquerade&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card" data-text="防火墙">
+          <div class="comment top-comment" id="block-7">7. 防火墙</div>
+          
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-1">7.1</div>
+          <div class="cmdline" data-text="set firewall global-options all-ping enable"><span>set firewall global-options all-ping enable</span><button class="copy" onclick="copyText(&#x27;set firewall global-options all-ping enable&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-2">7.2</div>
+          <div class="cmdline" data-text="set firewall zone local local-zone"><span>set firewall zone LOCAL local-zone</span><button class="copy" onclick="copyText(&#x27;set firewall zone LOCAL local-zone&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="vyos 1.5">
+          <div class="comment" id="block-7-3">7.3. VYOS 1.5</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-7-3-1">7.3.1</div>
+          <div class="cmdline" data-text="set firewall zone lan member interface br0"><span>set firewall zone LAN member interface br0</span><button class="copy" onclick="copyText(&#x27;set firewall zone LAN member interface br0&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-7-3-2">7.3.2</div>
+          <div class="cmdline" data-text="set firewall zone wan member interface pppoe0"><span>set firewall zone WAN member interface pppoe0</span><button class="copy" onclick="copyText(&#x27;set firewall zone WAN member interface pppoe0&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested" data-text="vyos 1.4.3">
+          <div class="comment" id="block-7-4">7.4. VYOS 1.4.3</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-7-4-1">7.4.1</div>
+          <div class="cmdline" data-text="set firewall zone lan interface br0"><span>set firewall zone LAN interface br0</span><button class="copy" onclick="copyText(&#x27;set firewall zone LAN interface br0&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-7-4-2">7.4.2</div>
+          <div class="cmdline" data-text="set firewall zone wan interface pppoe0"><span>set firewall zone WAN interface pppoe0</span><button class="copy" onclick="copyText(&#x27;set firewall zone WAN interface pppoe0&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-5">7.5</div>
+          <div class="cmdline" data-text="set firewall ipv4 name lan-local default-action accept"><span>set firewall ipv4 name LAN-LOCAL default-action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name LAN-LOCAL default-action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-6">7.6</div>
+          <div class="cmdline" data-text="set firewall zone local from lan firewall name lan-local"><span>set firewall zone LOCAL from LAN firewall name LAN-LOCAL</span><button class="copy" onclick="copyText(&#x27;set firewall zone LOCAL from LAN firewall name LAN-LOCAL&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-7">7.7</div>
+          <div class="cmdline" data-text="set firewall ipv6 name lan-local-6 default-action accept"><span>set firewall ipv6 name LAN-LOCAL-6 default-action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name LAN-LOCAL-6 default-action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-8">7.8</div>
+          <div class="cmdline" data-text="set firewall zone local from lan firewall ipv6-name lan-local-6"><span>set firewall zone LOCAL from LAN firewall ipv6-name LAN-LOCAL-6</span><button class="copy" onclick="copyText(&#x27;set firewall zone LOCAL from LAN firewall ipv6-name LAN-LOCAL-6&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-9">7.9</div>
+          <div class="cmdline" data-text="set firewall ipv4 name local-lan default-action accept"><span>set firewall ipv4 name LOCAL-LAN default-action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name LOCAL-LAN default-action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-10">7.10</div>
+          <div class="cmdline" data-text="set firewall zone lan from local firewall name local-lan"><span>set firewall zone LAN from LOCAL firewall name LOCAL-LAN</span><button class="copy" onclick="copyText(&#x27;set firewall zone LAN from LOCAL firewall name LOCAL-LAN&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-11">7.11</div>
+          <div class="cmdline" data-text="set firewall ipv6 name local-lan-6 default-action accept"><span>set firewall ipv6 name LOCAL-LAN-6 default-action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name LOCAL-LAN-6 default-action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-12">7.12</div>
+          <div class="cmdline" data-text="set firewall zone lan from local firewall ipv6-name local-lan-6"><span>set firewall zone LAN from LOCAL firewall ipv6-name LOCAL-LAN-6</span><button class="copy" onclick="copyText(&#x27;set firewall zone LAN from LOCAL firewall ipv6-name LOCAL-LAN-6&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-13">7.13</div>
+          <div class="cmdline" data-text="set firewall ipv4 name lan-wan default-action accept"><span>set firewall ipv4 name LAN-WAN default-action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name LAN-WAN default-action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-14">7.14</div>
+          <div class="cmdline" data-text="set firewall zone wan from lan firewall name lan-wan"><span>set firewall zone WAN from LAN firewall name LAN-WAN</span><button class="copy" onclick="copyText(&#x27;set firewall zone WAN from LAN firewall name LAN-WAN&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-15">7.15</div>
+          <div class="cmdline" data-text="set firewall ipv6 name lan-wan-6 default-action accept"><span>set firewall ipv6 name LAN-WAN-6 default-action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name LAN-WAN-6 default-action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-16">7.16</div>
+          <div class="cmdline" data-text="set firewall zone wan from lan firewall ipv6-name lan-wan-6"><span>set firewall zone WAN from LAN firewall ipv6-name LAN-WAN-6</span><button class="copy" onclick="copyText(&#x27;set firewall zone WAN from LAN firewall ipv6-name LAN-WAN-6&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-17">7.17</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-lan default-action drop"><span>set firewall ipv4 name WAN-LAN default-action drop</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LAN default-action drop&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-18">7.18</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-lan rule 1 action accept"><span>set firewall ipv4 name WAN-LAN rule 1 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LAN rule 1 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-19">7.19</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-lan rule 1 state established"><span>set firewall ipv4 name WAN-LAN rule 1 state established</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LAN rule 1 state established&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-20">7.20</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-lan rule 1 state related"><span>set firewall ipv4 name WAN-LAN rule 1 state related</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LAN rule 1 state related&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-21">7.21</div>
+          <div class="cmdline" data-text="set firewall zone lan from wan firewall name wan-lan"><span>set firewall zone LAN from WAN firewall name WAN-LAN</span><button class="copy" onclick="copyText(&#x27;set firewall zone LAN from WAN firewall name WAN-LAN&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-22">7.22</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-lan-6 default-action drop"><span>set firewall ipv6 name WAN-LAN-6 default-action drop</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LAN-6 default-action drop&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-23">7.23</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-lan-6 rule 1 action accept"><span>set firewall ipv6 name WAN-LAN-6 rule 1 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LAN-6 rule 1 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-24">7.24</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-lan-6 rule 1 state established"><span>set firewall ipv6 name WAN-LAN-6 rule 1 state established</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LAN-6 rule 1 state established&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-25">7.25</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-lan-6 rule 1 state related"><span>set firewall ipv6 name WAN-LAN-6 rule 1 state related</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LAN-6 rule 1 state related&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-26">7.26</div>
+          <div class="cmdline" data-text="set firewall zone lan from wan firewall ipv6-name wan-lan-6"><span>set firewall zone LAN from WAN firewall ipv6-name WAN-LAN-6</span><button class="copy" onclick="copyText(&#x27;set firewall zone LAN from WAN firewall ipv6-name WAN-LAN-6&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-27">7.27</div>
+          <div class="cmdline" data-text="set firewall ipv4 name local-wan default-action accept"><span>set firewall ipv4 name LOCAL-WAN default-action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name LOCAL-WAN default-action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-28">7.28</div>
+          <div class="cmdline" data-text="set firewall zone wan from local firewall name local-wan"><span>set firewall zone WAN from LOCAL firewall name LOCAL-WAN</span><button class="copy" onclick="copyText(&#x27;set firewall zone WAN from LOCAL firewall name LOCAL-WAN&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-29">7.29</div>
+          <div class="cmdline" data-text="set firewall ipv6 name local-wan-6 default-action accept"><span>set firewall ipv6 name LOCAL-WAN-6 default-action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name LOCAL-WAN-6 default-action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-30">7.30</div>
+          <div class="cmdline" data-text="set firewall zone wan from local firewall ipv6-name local-wan-6"><span>set firewall zone WAN from LOCAL firewall ipv6-name LOCAL-WAN-6</span><button class="copy" onclick="copyText(&#x27;set firewall zone WAN from LOCAL firewall ipv6-name LOCAL-WAN-6&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-31">7.31</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local default-action drop"><span>set firewall ipv4 name WAN-LOCAL default-action drop</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL default-action drop&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-32">7.32</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 1 action accept"><span>set firewall ipv4 name WAN-LOCAL rule 1 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 1 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-33">7.33</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 1 state established"><span>set firewall ipv4 name WAN-LOCAL rule 1 state established</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 1 state established&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-34">7.34</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 1 state related"><span>set firewall ipv4 name WAN-LOCAL rule 1 state related</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 1 state related&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-35">7.35</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 10 action accept"><span>set firewall ipv4 name WAN-LOCAL rule 10 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 10 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-36">7.36</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 10 protocol icmp"><span>set firewall ipv4 name WAN-LOCAL rule 10 protocol icmp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 10 protocol icmp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-37">7.37</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 10 icmp type 3   # destination-unreachable"><span>set firewall ipv4 name WAN-LOCAL rule 10 icmp type 3   # destination-unreachable</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 10 icmp type 3   # destination-unreachable&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-38">7.38</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 11 action accept"><span>set firewall ipv4 name WAN-LOCAL rule 11 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 11 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-39">7.39</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 11 protocol icmp"><span>set firewall ipv4 name WAN-LOCAL rule 11 protocol icmp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 11 protocol icmp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-40">7.40</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 11 icmp type 11  # time-exceeded"><span>set firewall ipv4 name WAN-LOCAL rule 11 icmp type 11  # time-exceeded</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 11 icmp type 11  # time-exceeded&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-41">7.41</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 12 action accept"><span>set firewall ipv4 name WAN-LOCAL rule 12 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 12 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-42">7.42</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 12 protocol icmp"><span>set firewall ipv4 name WAN-LOCAL rule 12 protocol icmp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 12 protocol icmp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-43">7.43</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 12 icmp type 0    # echo-reply"><span>set firewall ipv4 name WAN-LOCAL rule 12 icmp type 0    # echo-reply</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 12 icmp type 0    # echo-reply&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-44">7.44</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 12 limit rate 10/second"><span>set firewall ipv4 name WAN-LOCAL rule 12 limit rate 10/second</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 12 limit rate 10/second&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-45">7.45</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 12 limit burst 20"><span>set firewall ipv4 name WAN-LOCAL rule 12 limit burst 20</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 12 limit burst 20&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-46">7.46</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 20 action accept"><span>set firewall ipv4 name WAN-LOCAL rule 20 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 20 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-47">7.47</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 20 protocol icmp"><span>set firewall ipv4 name WAN-LOCAL rule 20 protocol icmp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 20 protocol icmp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-48">7.48</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 20 icmp type 8   # echo-request"><span>set firewall ipv4 name WAN-LOCAL rule 20 icmp type 8   # echo-request</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 20 icmp type 8   # echo-request&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-49">7.49</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 20 limit rate 10/second"><span>set firewall ipv4 name WAN-LOCAL rule 20 limit rate 10/second</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 20 limit rate 10/second&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-50">7.50</div>
+          <div class="cmdline" data-text="set firewall ipv4 name wan-local rule 20 limit burst 20"><span>set firewall ipv4 name WAN-LOCAL rule 20 limit burst 20</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name WAN-LOCAL rule 20 limit burst 20&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-51">7.51</div>
+          <div class="cmdline" data-text="set firewall zone local from wan firewall name wan-local"><span>set firewall zone LOCAL from WAN firewall name WAN-LOCAL</span><button class="copy" onclick="copyText(&#x27;set firewall zone LOCAL from WAN firewall name WAN-LOCAL&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-52">7.52</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 default-action drop"><span>set firewall ipv6 name WAN-LOCAL-6 default-action drop</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 default-action drop&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-53">7.53</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 1 action accept"><span>set firewall ipv6 name WAN-LOCAL-6 rule 1 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 1 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-54">7.54</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 1 state established"><span>set firewall ipv6 name WAN-LOCAL-6 rule 1 state established</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 1 state established&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-55">7.55</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 1 state related"><span>set firewall ipv6 name WAN-LOCAL-6 rule 1 state related</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 1 state related&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-56">7.56</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 10 action accept"><span>set firewall ipv6 name WAN-LOCAL-6 rule 10 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 10 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-57">7.57</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 10 protocol ipv6-icmp"><span>set firewall ipv6 name WAN-LOCAL-6 rule 10 protocol ipv6-icmp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 10 protocol ipv6-icmp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-58">7.58</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 10 icmpv6 type 1   # destination-unreachable"><span>set firewall ipv6 name WAN-LOCAL-6 rule 10 icmpv6 type 1   # destination-unreachable</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 10 icmpv6 type 1   # destination-unreachable&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-59">7.59</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 11 action accept"><span>set firewall ipv6 name WAN-LOCAL-6 rule 11 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 11 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-60">7.60</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 11 protocol ipv6-icmp"><span>set firewall ipv6 name WAN-LOCAL-6 rule 11 protocol ipv6-icmp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 11 protocol ipv6-icmp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-61">7.61</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 11 icmpv6 type 2   # packet-too-big"><span>set firewall ipv6 name WAN-LOCAL-6 rule 11 icmpv6 type 2   # packet-too-big</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 11 icmpv6 type 2   # packet-too-big&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-62">7.62</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 12 action accept"><span>set firewall ipv6 name WAN-LOCAL-6 rule 12 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 12 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-63">7.63</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 12 protocol ipv6-icmp"><span>set firewall ipv6 name WAN-LOCAL-6 rule 12 protocol ipv6-icmp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 12 protocol ipv6-icmp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-64">7.64</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 12 icmpv6 type 3   # time-exceeded"><span>set firewall ipv6 name WAN-LOCAL-6 rule 12 icmpv6 type 3   # time-exceeded</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 12 icmpv6 type 3   # time-exceeded&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-65">7.65</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 13 action accept"><span>set firewall ipv6 name WAN-LOCAL-6 rule 13 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 13 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-66">7.66</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 13 protocol ipv6-icmp"><span>set firewall ipv6 name WAN-LOCAL-6 rule 13 protocol ipv6-icmp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 13 protocol ipv6-icmp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-67">7.67</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 13 icmpv6 type 4   # parameter-problem"><span>set firewall ipv6 name WAN-LOCAL-6 rule 13 icmpv6 type 4   # parameter-problem</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 13 icmpv6 type 4   # parameter-problem&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-68">7.68</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 15 action accept"><span>set firewall ipv6 name WAN-LOCAL-6 rule 15 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 15 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-69">7.69</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 15 protocol ipv6-icmp"><span>set firewall ipv6 name WAN-LOCAL-6 rule 15 protocol ipv6-icmp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 15 protocol ipv6-icmp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-70">7.70</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 15 icmpv6 type 128   # echo-request"><span>set firewall ipv6 name WAN-LOCAL-6 rule 15 icmpv6 type 128   # echo-request</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 15 icmpv6 type 128   # echo-request&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-71">7.71</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 15 limit rate 10/second"><span>set firewall ipv6 name WAN-LOCAL-6 rule 15 limit rate 10/second</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 15 limit rate 10/second&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-72">7.72</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 15 limit burst 20"><span>set firewall ipv6 name WAN-LOCAL-6 rule 15 limit burst 20</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 15 limit burst 20&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-73">7.73</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 16 action accept"><span>set firewall ipv6 name WAN-LOCAL-6 rule 16 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 16 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-74">7.74</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 16 protocol ipv6-icmp"><span>set firewall ipv6 name WAN-LOCAL-6 rule 16 protocol ipv6-icmp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 16 protocol ipv6-icmp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-75">7.75</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 16 icmpv6 type 133   # router-solicit"><span>set firewall ipv6 name WAN-LOCAL-6 rule 16 icmpv6 type 133   # router-solicit</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 16 icmpv6 type 133   # router-solicit&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-76">7.76</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 17 action accept"><span>set firewall ipv6 name WAN-LOCAL-6 rule 17 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 17 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-77">7.77</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 17 protocol ipv6-icmp"><span>set firewall ipv6 name WAN-LOCAL-6 rule 17 protocol ipv6-icmp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 17 protocol ipv6-icmp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-78">7.78</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 17 icmpv6 type 134   # router-advertisement"><span>set firewall ipv6 name WAN-LOCAL-6 rule 17 icmpv6 type 134   # router-advertisement</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 17 icmpv6 type 134   # router-advertisement&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-79">7.79</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 18 action accept"><span>set firewall ipv6 name WAN-LOCAL-6 rule 18 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 18 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-80">7.80</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 18 protocol ipv6-icmp"><span>set firewall ipv6 name WAN-LOCAL-6 rule 18 protocol ipv6-icmp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 18 protocol ipv6-icmp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-81">7.81</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 18 icmpv6 type 135   # nd-neighbor-solicit"><span>set firewall ipv6 name WAN-LOCAL-6 rule 18 icmpv6 type 135   # nd-neighbor-solicit</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 18 icmpv6 type 135   # nd-neighbor-solicit&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-82">7.82</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 19 action accept"><span>set firewall ipv6 name WAN-LOCAL-6 rule 19 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 19 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-83">7.83</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 19 protocol ipv6-icmp"><span>set firewall ipv6 name WAN-LOCAL-6 rule 19 protocol ipv6-icmp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 19 protocol ipv6-icmp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-84">7.84</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 19 icmpv6 type 136   # nd-neighbor-advert"><span>set firewall ipv6 name WAN-LOCAL-6 rule 19 icmpv6 type 136   # nd-neighbor-advert</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 19 icmpv6 type 136   # nd-neighbor-advert&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-85">7.85</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 20 action accept"><span>set firewall ipv6 name WAN-LOCAL-6 rule 20 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 20 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-86">7.86</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 20 protocol udp"><span>set firewall ipv6 name WAN-LOCAL-6 rule 20 protocol udp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 20 protocol udp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-87">7.87</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 20 destination port 546"><span>set firewall ipv6 name WAN-LOCAL-6 rule 20 destination port 546</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 20 destination port 546&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-88">7.88</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-local-6 rule 20 source port 547"><span>set firewall ipv6 name WAN-LOCAL-6 rule 20 source port 547</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LOCAL-6 rule 20 source port 547&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-89">7.89</div>
+          <div class="cmdline" data-text="set firewall zone local from wan firewall ipv6-name wan-local-6"><span>set firewall zone LOCAL from WAN firewall ipv6-name WAN-LOCAL-6</span><button class="copy" onclick="copyText(&#x27;set firewall zone LOCAL from WAN firewall ipv6-name WAN-LOCAL-6&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card" data-text="访问192.168.1.1">
+          <div class="comment top-comment" id="block-8">8. 访问192.168.1.1</div>
+          
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-1">8.1</div>
+          <div class="cmdline" data-text="set nat source rule 20 destination address '192.168.1.1/32'"><span>set nat source rule 20 destination address '192.168.1.1/32'</span><button class="copy" onclick="copyText(&quot;set nat source rule 20 destination address &#x27;192.168.1.1/32&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-2">8.2</div>
+          <div class="cmdline" data-text="set nat source rule 20 outbound-interface name 'eth1'"><span>set nat source rule 20 outbound-interface name 'eth1'</span><button class="copy" onclick="copyText(&quot;set nat source rule 20 outbound-interface name &#x27;eth1&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-3">8.3</div>
+          <div class="cmdline" data-text="set nat source rule 20 source address '10.0.0.0/24'"><span>set nat source rule 20 source address '10.0.0.0/24'</span><button class="copy" onclick="copyText(&quot;set nat source rule 20 source address &#x27;10.0.0.0/24&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-4">8.4</div>
+          <div class="cmdline" data-text="set nat source rule 20 translation address '192.168.1.10'"><span>set nat source rule 20 translation address '192.168.1.10'</span><button class="copy" onclick="copyText(&quot;set nat source rule 20 translation address &#x27;192.168.1.10&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-5">8.5</div>
+          <div class="cmdline" data-text="set firewall zone eth1 interface eth1"><span>set firewall zone ETH1 interface eth1</span><button class="copy" onclick="copyText(&#x27;set firewall zone ETH1 interface eth1&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-6">8.6</div>
+          <div class="cmdline" data-text="set firewall ipv4 name lan-eth1 default-action drop"><span>set firewall ipv4 name LAN-ETH1 default-action drop</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name LAN-ETH1 default-action drop&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-7">8.7</div>
+          <div class="cmdline" data-text="set firewall ipv4 name lan-eth1 rule 10 action accept"><span>set firewall ipv4 name LAN-ETH1 rule 10 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name LAN-ETH1 rule 10 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-8">8.8</div>
+          <div class="cmdline" data-text="set firewall ipv4 name lan-eth1 rule 10 destination address 192.168.1.1"><span>set firewall ipv4 name LAN-ETH1 rule 10 destination address 192.168.1.1</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name LAN-ETH1 rule 10 destination address 192.168.1.1&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-9">8.9</div>
+          <div class="cmdline" data-text="set firewall ipv4 name lan-eth1 rule 10 source address 10.0.0.0/24"><span>set firewall ipv4 name LAN-ETH1 rule 10 source address 10.0.0.0/24</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name LAN-ETH1 rule 10 source address 10.0.0.0/24&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-10">8.10</div>
+          <div class="cmdline" data-text="set firewall ipv4 name lan-eth1 rule 10 protocol tcp_udp"><span>set firewall ipv4 name LAN-ETH1 rule 10 protocol tcp_udp</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name LAN-ETH1 rule 10 protocol tcp_udp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-11">8.11</div>
+          <div class="cmdline" data-text="set firewall ipv4 name lan-eth1 rule 10 log"><span>set firewall ipv4 name LAN-ETH1 rule 10 log</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name LAN-ETH1 rule 10 log&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-12">8.12</div>
+          <div class="cmdline" data-text="set firewall zone eth1 from lan firewall name lan-eth1"><span>set firewall zone ETH1 from LAN firewall name LAN-ETH1</span><button class="copy" onclick="copyText(&#x27;set firewall zone ETH1 from LAN firewall name LAN-ETH1&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-13">8.13</div>
+          <div class="cmdline" data-text="set firewall ipv4 name eth1-lan default-action drop"><span>set firewall ipv4 name ETH1-LAN default-action drop</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name ETH1-LAN default-action drop&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-14">8.14</div>
+          <div class="cmdline" data-text="set firewall ipv4 name eth1-lan rule 10 action accept"><span>set firewall ipv4 name ETH1-LAN rule 10 action accept</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name ETH1-LAN rule 10 action accept&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-15">8.15</div>
+          <div class="cmdline" data-text="set firewall ipv4 name eth1-lan rule 10 state established enable"><span>set firewall ipv4 name ETH1-LAN rule 10 state established enable</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name ETH1-LAN rule 10 state established enable&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-16">8.16</div>
+          <div class="cmdline" data-text="set firewall ipv4 name eth1-lan rule 10 state established"><span>set firewall ipv4 name ETH1-LAN rule 10 state established</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name ETH1-LAN rule 10 state established&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-17">8.17</div>
+          <div class="cmdline" data-text="set firewall ipv4 name eth1-lan rule 10 state related"><span>set firewall ipv4 name ETH1-LAN rule 10 state related</span><button class="copy" onclick="copyText(&#x27;set firewall ipv4 name ETH1-LAN rule 10 state related&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-8-18">8.18</div>
+          <div class="cmdline" data-text="set firewall zone lan from eth1 firewall name eth1-lan"><span>set firewall zone LAN from ETH1 firewall name ETH1-LAN</span><button class="copy" onclick="copyText(&#x27;set firewall zone LAN from ETH1 firewall name ETH1-LAN&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card" data-text="指定ipv6放行">
+          <div class="comment top-comment" id="block-9">9. 指定ipv6放行</div>
+          
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-9-1">9.1</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-lan-6 default-log"><span>set firewall ipv6 name WAN-LAN-6 default-log</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LAN-6 default-log&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-9-2">9.2</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-lan-6 rule 30 action 'accept'"><span>set firewall ipv6 name WAN-LAN-6 rule 30 action 'accept'</span><button class="copy" onclick="copyText(&quot;set firewall ipv6 name WAN-LAN-6 rule 30 action &#x27;accept&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-9-3">9.3</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-lan-6 rule 30 destination address '::a111'"><span>set firewall ipv6 name WAN-LAN-6 rule 30 destination address '::a111'</span><button class="copy" onclick="copyText(&quot;set firewall ipv6 name WAN-LAN-6 rule 30 destination address &#x27;::a111&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-9-4">9.4</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-lan-6 rule 30 destination address-mask '::ffff:ffff:ffff:ffff'"><span>set firewall ipv6 name WAN-LAN-6 rule 30 destination address-mask '::ffff:ffff:ffff:ffff'</span><button class="copy" onclick="copyText(&quot;set firewall ipv6 name WAN-LAN-6 rule 30 destination address-mask &#x27;::ffff:ffff:ffff:ffff&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-9-5">9.5</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-lan-6 rule 30 destination port '53700-53800,57575'"><span>set firewall ipv6 name WAN-LAN-6 rule 30 destination port '53700-53800,57575'</span><button class="copy" onclick="copyText(&quot;set firewall ipv6 name WAN-LAN-6 rule 30 destination port &#x27;53700-53800,57575&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-9-6">9.6</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-lan-6 rule 30 protocol 'tcp_udp'"><span>set firewall ipv6 name WAN-LAN-6 rule 30 protocol 'tcp_udp'</span><button class="copy" onclick="copyText(&quot;set firewall ipv6 name WAN-LAN-6 rule 30 protocol &#x27;tcp_udp&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-9-7">9.7</div>
+          <div class="cmdline" data-text="set firewall ipv6 name wan-lan-6 rule 30 log"><span>set firewall ipv6 name WAN-LAN-6 rule 30 log</span><button class="copy" onclick="copyText(&#x27;set firewall ipv6 name WAN-LAN-6 rule 30 log&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-9-8">9.8</div>
+          <div class="cmdline" data-text="show firewall ipv6 name wan-lan-6 rule"><span>show firewall ipv6 name WAN-LAN-6 rule</span><button class="copy" onclick="copyText(&#x27;show firewall ipv6 name WAN-LAN-6 rule&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card" data-text="静态ip">
+          <div class="comment top-comment" id="block-10">10. 静态ip</div>
+          
+        <div class="card nested" data-text="vyos 1.5">
+          <div class="comment" id="block-10-1">10.1. VYOS 1.5</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-10-1-1">10.1.1</div>
+          
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-10-1-1-1">10.1.1.1</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 static-mapping iphone8plus ip-address '10.0.0.53'"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping iPhone8plus ip-address '10.0.0.53'</span><button class="copy" onclick="copyText(&quot;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping iPhone8plus ip-address &#x27;10.0.0.53&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-10-1-1-2">10.1.1.2</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 static-mapping iphone8plus mac '82:af:f5:4d:8b:f7'"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping iPhone8plus mac '82:af:f5:4d:8b:f7'</span><button class="copy" onclick="copyText(&quot;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping iPhone8plus mac &#x27;82:af:f5:4d:8b:f7&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-10-1-1-3">10.1.1.3</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 static-mapping iphone8plus option default-router '10.0.0.20'"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping iPhone8plus option default-router '10.0.0.20'</span><button class="copy" onclick="copyText(&quot;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping iPhone8plus option default-router &#x27;10.0.0.20&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-10-1-1-4">10.1.1.4</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 static-mapping iphone8plus option name-server '10.0.0.25'"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping iPhone8plus option name-server '10.0.0.25'</span><button class="copy" onclick="copyText(&quot;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping iPhone8plus option name-server &#x27;10.0.0.25&#x27;&quot;, this)">复制</button></div>
+        </div>
+        </div>
+        </div>
+        <div class="card nested" data-text="vyos 1.4.3">
+          <div class="comment" id="block-10-2">10.2. VYOS 1.4.3</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-10-2-1">10.2.1</div>
+          
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-10-2-1-1">10.2.1.1</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 static-mapping desktop-lenovo ip-address '10.0.0.52'"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping desktop-lenovo ip-address '10.0.0.52'</span><button class="copy" onclick="copyText(&quot;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping desktop-lenovo ip-address &#x27;10.0.0.52&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-10-2-1-2">10.2.1.2</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 static-mapping desktop-lenovo mac 'd4:ab:61:4d:3f:28'"><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping desktop-lenovo mac 'd4:ab:61:4d:3f:28'</span><button class="copy" onclick="copyText(&quot;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping desktop-lenovo mac &#x27;d4:ab:61:4d:3f:28&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-10-2-1-3">10.2.1.3</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 static-mapping desktop-lenovo static-mapping-parameters "option routers 10.0.0.20;""><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping desktop-lenovo static-mapping-parameters "option routers 10.0.0.20;"</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping desktop-lenovo static-mapping-parameters &quot;option routers 10.0.0.20;&quot;&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-3" data-text="">
+          <div class="comment no-text" id="block-10-2-1-4">10.2.1.4</div>
+          <div class="cmdline" data-text="set service dhcp-server shared-network-name lan subnet 10.0.0.0/24 static-mapping desktop-lenovo static-mapping-parameters "option domain-name-servers 10.0.0.25;""><span>set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping desktop-lenovo static-mapping-parameters "option domain-name-servers 10.0.0.25;"</span><button class="copy" onclick="copyText(&#x27;set service dhcp-server shared-network-name LAN subnet 10.0.0.0/24 static-mapping desktop-lenovo static-mapping-parameters &quot;option domain-name-servers 10.0.0.25;&quot;&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        </div>
+        </div>
+        <div class="card" data-text="wan dhcp">
+          <div class="comment top-comment" id="block-11">11. WAN DHCP</div>
+          
+        <div class="card nested" data-text="wan">
+          <div class="comment" id="block-11-1">11.1. WAN</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-11-1-1">11.1.1</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 address dhcp"><span>set interfaces ethernet eth1 address dhcp</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth1 address dhcp&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-11-1-2">11.1.2</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 ipv6 address autoconf"><span>set interfaces ethernet eth1 ipv6 address autoconf</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth1 ipv6 address autoconf&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-11-1-3">11.1.3</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth1 dhcpv6-pd pd 0 prefix-length 60"><span>set interfaces ethernet eth1 dhcpv6-pd pd 0 prefix-length 60</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth1 dhcpv6-pd pd 0 prefix-length 60&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card nested" data-text="lan">
+          <div class="comment" id="block-11-2">11.2. LAN</div>
+          
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-11-2-1">11.2.1</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 ipv6 address autoconf"><span>set interfaces ethernet eth0 ipv6 address autoconf</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 ipv6 address autoconf&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-11-2-2">11.2.2</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 ipv6 router-advert prefix ::/64"><span>set interfaces ethernet eth0 ipv6 router-advert prefix ::/64</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 ipv6 router-advert prefix ::/64&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-11-2-3">11.2.3</div>
+          <div class="cmdline" data-text="set interfaces ethernet eth0 dhcpv6-pd pd 0 interface eth0 prefix-id :0"><span>set interfaces ethernet eth0 dhcpv6-pd pd 0 interface eth0 prefix-id :0</span><button class="copy" onclick="copyText(&#x27;set interfaces ethernet eth0 dhcpv6-pd pd 0 interface eth0 prefix-id :0&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested level-2" data-text="">
+          <div class="comment no-text" id="block-11-2-4">11.2.4</div>
+          <div class="cmdline" data-text="set service router-advert interface br0 prefix ::/64 valid-lifetime '172800'"><span>set service router-advert interface br0 prefix ::/64 valid-lifetime '172800'</span><button class="copy" onclick="copyText(&quot;set service router-advert interface br0 prefix ::/64 valid-lifetime &#x27;172800&#x27;&quot;, this)">复制</button></div>
+        </div>
+        </div>
+        </div>
+        <div class="card" data-text="流量整形">
+          <div class="comment top-comment" id="block-12">12. 流量整形</div>
+          
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-12-1">12.1</div>
+          <div class="cmdline" data-text="set qos policy cake upload bandwidth '100mbit'"><span>set qos policy cake UPLOAD bandwidth '100mbit'</span><button class="copy" onclick="copyText(&quot;set qos policy cake UPLOAD bandwidth &#x27;100mbit&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-12-2">12.2</div>
+          <div class="cmdline" data-text="set qos policy cake upload flow-isolation dual-src-host"><span>set qos policy cake UPLOAD flow-isolation dual-src-host</span><button class="copy" onclick="copyText(&#x27;set qos policy cake UPLOAD flow-isolation dual-src-host&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-12-3">12.3</div>
+          <div class="cmdline" data-text="set qos interface pppoe0 egress upload"><span>set qos interface pppoe0 egress UPLOAD</span><button class="copy" onclick="copyText(&#x27;set qos interface pppoe0 egress UPLOAD&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card" data-text="ssh密钥">
+          <div class="comment top-comment" id="block-13">13. SSH密钥</div>
+          
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-13-1">13.1</div>
+          <div class="cmdline" data-text="set system login user vyos authentication public-keys mypc type 'ssh-ed25519'"><span>set system login user vyos authentication public-keys mypc type 'ssh-ed25519'</span><button class="copy" onclick="copyText(&quot;set system login user vyos authentication public-keys mypc type &#x27;ssh-ed25519&#x27;&quot;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-13-2">13.2</div>
+          <div class="cmdline" data-text="set system login user vyos authentication public-keys mypc key 'aaaac"><span>set system login user vyos authentication public-keys mypc key 'AAAAC</span><button class="copy" onclick="copyText(&quot;set system login user vyos authentication public-keys mypc key &#x27;AAAAC&quot;, this)">复制</button></div>
+        </div>
+        </div>
+    </div>
+  </div>
+  <script>
+    function toggleToc() {
+      const toc = document.querySelector('.toc');
+      const overlay = document.querySelector('.toc-overlay');
+      toc.classList.toggle('open');
+      overlay.classList.toggle('open');
+    }
+    
+    function closeToc() {
+      const toc = document.querySelector('.toc');
+      const overlay = document.querySelector('.toc-overlay');
+      toc.classList.remove('open');
+      overlay.classList.remove('open');
+    }
+    
+    function copyText(text, btn) {
+      navigator.clipboard.writeText(text).then(() => {
+        const old = btn.textContent;
+        btn.textContent = "✓ 已复制";
+        btn.disabled = true;
+        setTimeout(() => { 
+          btn.textContent = old; 
+          btn.disabled = false; 
+        }, 1500);
+      }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        const old = btn.textContent;
+        btn.textContent = "✓ 已复制";
+        btn.disabled = true;
+        setTimeout(() => { 
+          btn.textContent = old; 
+          btn.disabled = false; 
+        }, 1500);
+      });
+    }
+    
+    function toggleCode(btn) {
+      const container = btn.parentElement;
+      const preview = container.querySelector('.preview');
+      const full = container.querySelector('.full');
+      if (full.style.display === 'none') {
+        preview.style.display = 'none';
+        full.style.display = 'block';
+        btn.textContent = '▲';
+      } else {
+        preview.style.display = 'block';
+        full.style.display = 'none';
+        btn.textContent = '▼';
+      }
+    }
+    
+    const q = document.getElementById('q');
+    const cards = Array.from(document.querySelectorAll('.card'));
+    const total = document.getElementById('total');
+
+    function updateCount() {
+      let visibleItems = 0;
+      cards.forEach(c => {
+        const contents = Array.from(c.querySelectorAll('.cmdline, .codeblock-container'));
+        let isCardVisible = false;
+        contents.forEach(content => {
+          if (content.style.display !== 'none') {
+            visibleItems++;
+            isCardVisible = true;
+          }
+        });
+      });
+      total.textContent = visibleItems;
+    }
+
+    q.addEventListener('input', () => {
+      const val = q.value.toLowerCase().trim();
+      cards.forEach(c => {
+        const commentText = c.getAttribute('data-text') || '';
+        const contents = Array.from(c.querySelectorAll('.cmdline, .codeblock-container'));
+        let hasVisibleContent = false;
+        
+        if (!val) {
+          contents.forEach(content => content.style.display = '');
+          hasVisibleContent = true;
+        } else {
+          const matchCardComment = commentText.includes(val);
+          contents.forEach(content => {
+            const text = content.getAttribute('data-text') || '';
+            if (matchCardComment || text.includes(val)) {
+              content.style.display = '';
+              hasVisibleContent = true;
+            } else {
+              content.style.display = 'none';
+            }
+          });
+        }
+        c.style.display = hasVisibleContent ? '' : 'none';
+      });
+      updateCount();
+    });
+    
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          setTimeout(closeToc, 300);
+        }
+      });
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        updateCount();
+    });
+    
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeToc();
+      }
+    });
+  </script>
+</body>
+</html>

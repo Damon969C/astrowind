@@ -1,0 +1,47 @@
+/downloads/manifest.json
+  Content-Type: application/json; charset=utf-8
+  X-Content-Type-Options: nosniff
+
+/downloads/debian/*.py
+  Content-Type: text/x-python; charset=utf-8
+  Content-Disposition: attachment
+  X-Content-Type-Options: nosniff
+
+/downloads/debian/*.sh
+  Content-Type: text/x-shellscript; charset=utf-8
+  Content-Disposition: attachment
+  X-Content-Type-Options: nosniff
+
+/downloads/win/*.py
+  Content-Type: text/x-python; charset=utf-8
+  Content-Disposition: attachment
+  X-Content-Type-Options: nosniff
+
+/downloads/win/*.ps1
+  Content-Type: text/plain; charset=utf-8
+  Content-Disposition: attachment
+  X-Content-Type-Options: nosniff
+
+/downloads/win/*.bat
+  Content-Type: text/plain; charset=utf-8
+  Content-Disposition: attachment
+  X-Content-Type-Options: nosniff
+
+/downloads/win/*.ahk
+  Content-Type: text/plain; charset=utf-8
+  Content-Disposition: attachment
+  X-Content-Type-Options: nosniff
+
+/downloads/reg/*.reg
+  Content-Type: text/plain; charset=utf-8
+  Content-Disposition: attachment
+  X-Content-Type-Options: nosniff
+
+/downloads/SHA256SUMS.txt
+  Content-Type: text/plain; charset=utf-8
+  Content-Disposition: attachment
+  X-Content-Type-Options: nosniff
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer

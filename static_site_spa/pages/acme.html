@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ACME（一键复制）</title>
+  <style>
+    :root { 
+      --bg:#0b0f16; 
+      --card:#151a22; 
+      --fg:#e8edf2; 
+      --muted:#9aa4af; 
+      --comment:#4ea1ff; 
+      --toc-bg:#111622;
+      --toc-width: 320px;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial;
+      background: var(--bg); 
+      color: var(--fg);
+      position: relative;
+      min-height: 100vh;
+    }
+    
+    /* 目录按钮 */
+    .toc-toggle { 
+      position: fixed; top: 20px; left: 20px; z-index: 1001;
+      background: linear-gradient(135deg, #1c3280, #1a2b55);
+      border: 1px solid #2b5a95; color: white; padding: 10px 16px;
+      border-radius: 8px; cursor: pointer; font-size: 14px;
+      display: flex; align-items: center; gap: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: all 0.3s ease;
+    }
+    .toc-toggle:hover {
+      background: linear-gradient(135deg, #2144a0, #1e3565);
+      transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+    }
+    .toc-toggle:active { transform: translateY(0); }
+    .toc-toggle svg { width: 18px; height: 18px; }
+    
+    /* 目录侧边栏 */
+    .toc { 
+      position: fixed; top: 0; left: 0; width: var(--toc-width); height: 100vh;
+      background: var(--toc-bg); padding: 80px 20px 20px; overflow-y: auto;
+      z-index: 1000; transform: translateX(-100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 4px 0 20px rgba(0,0,0,0.5); border-right: 1px solid #1a2030;
+    }
+    .toc.open { transform: translateX(0); }
+    
+    /* 遮罩层 */
+    .toc-overlay { 
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.5); z-index: 999;
+      opacity: 0; visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+    .toc-overlay.open { opacity: 1; visibility: visible; }
+    
+    .toc h2 { font-size: 20px; margin-bottom: 16px; color: var(--comment); font-weight: 600; }
+    .toc-list { list-style: none; padding: 0; margin: 0; }
+    .toc-list ul { list-style: none; padding-left: 20px; margin: 4px 0; }
+    .toc-list li { margin: 6px 0; }
+    .toc-list a { 
+      color: var(--fg); text-decoration: none; display: block;
+      padding: 4px 8px; border-radius: 6px; transition: all 0.2s ease;
+      font-size: 14px; line-height: 1.4;
+    }
+    .toc-list a:hover { background: rgba(78, 161, 255, 0.1); color: var(--comment); padding-left: 12px; }
+    .toc-empty { color: var(--muted); font-style: italic; padding: 20px; text-align: center; }
+    
+    /* 主内容区 */
+    .main { padding: 32px; max-width: 1400px; margin: 0 auto; }
+    h1 { font-size: 28px; margin-bottom: 8px; font-weight: 600; }
+    .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; }
+    .topbar { margin-bottom: 20px; padding-top: 50px; }
+    .search { margin-top: 16px; }
+    .search input {
+      width: 100%; max-width: 500px; padding: 10px 16px;
+      border-radius: 10px; border: 1px solid #223049; 
+      background: #0f1522; color: var(--fg);
+      outline: none; font-size: 14px; transition: all 0.2s ease;
+    }
+    .search input:focus { border-color: #2b5a95; background: #121826; }
+    .counter { 
+      color: var(--muted); font-size: 14px; margin-bottom: 20px;
+      padding: 8px 12px; background: rgba(21, 26, 34, 0.5);
+      border-radius: 8px; display: inline-block;
+    }
+    .list { display: flex; flex-direction: column; gap: 12px; }
+    .card {
+      background: var(--card); border: 1px solid #222a35;
+      border-radius: 10px; padding: 12px 14px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+      display: flex; flex-direction: column; gap: 8px;
+      transition: all 0.2s ease;
+    }
+    .card:hover { border-color: #2a3445; box-shadow: 0 4px 14px rgba(0,0,0,0.35); }
+    .card.nested { margin-left: 20px; background: rgba(21, 26, 34, 0.6); border-color: #1a2030; }
+    .card.nested.level-2 { margin-left: 40px; background: rgba(21, 26, 34, 0.4); }
+    .card.nested.level-3 { margin-left: 60px; background: rgba(21, 26, 34, 0.3); }
+    .comment { font-size: 13px; color: var(--comment); font-weight: 500; }
+    .comment.no-text { color: var(--muted); font-style: italic; font-size: 12px; }
+    .top-comment { font-size: 16px; font-weight: bold; color: var(--comment); }
+    
+    .cmdline {
+      display: flex; 
+      align-items: center; 
+      justify-content: space-between;
+      background: #0f1522; 
+      border: 1px dashed #293240; 
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace; 
+      font-size: 15px; /* <-- 优化: 再次增大字体 */
+      font-weight: 600;
+      color: var(--fg);
+      margin-top: 4px;
+      transition: all 0.2s ease;
+    }
+    .cmdline:hover { background: #111826; border-color: #344050; }
+
+    .codeblock-container {
+      position: relative;
+      margin-top: 4px;
+      padding-bottom: 10px; /* 为下方的 toggle 按钮留出空间 */
+    }
+    .codeblock {
+      background: #0f1522; border: 1px dashed #293240;
+      border-radius: 8px; padding: 8px 12px;
+      font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
+      color: var(--fg); transition: all 0.2s ease;
+      white-space: pre-wrap; word-wrap: break-word; overflow: hidden;
+    }
+    .codeblock:hover { background: #111826; border-color: #344050; }
+    .codeblock code { 
+      display: block; 
+      white-space: pre; 
+      font-size: 16px; /* <-- 优化: 再次增大字体 */
+      font-weight: 700; /* <-- Bug修复: 确保代码块内文本加粗 */
+    }
+    .codeblock.preview { 
+      max-height: 3.4em; /* 调整高度以适应新字号 */
+      overflow: hidden; 
+    }
+
+    .toggle {
+      position: absolute;
+      bottom: -10px; /* <-- 优化: 移动到下边缘 */
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--card); /* <-- 优化: 增加背景使其更明显 */
+      border: 1px solid #293240;
+      border-radius: 50%;
+      color: var(--muted); 
+      cursor: pointer;
+      font-size: 12px; 
+      padding: 0;
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      z-index: 1;
+    }
+    .toggle:hover { color: var(--fg); border-color: var(--comment); }
+    
+    /* 基础复制按钮样式 (用于Flexbox) */
+    button.copy {
+      cursor: pointer;
+      border: 1px solid #2b5a95;
+      background: linear-gradient(180deg, #1c3280, #1a2b55);
+      color: white; padding: 4px 10px; border-radius: 6px;
+      font-size: 12px; margin-left: 8px; transition: all 0.2s ease;
+      font-weight: 500; white-space: nowrap; flex-shrink: 0;
+    }
+    
+    /* 多行代码块容器内的复制按钮，使用绝对定位 */
+    .codeblock-container button.copy {
+      position: absolute;
+      top: 28px;
+      right: 16px;
+      margin-left: 0;
+      z-index: 1; /* 确保在代码之上 */
+    }
+
+    button.copy:hover {
+      background: linear-gradient(180deg, #2144a0, #1e3565);
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    button.copy:active { 
+      transform: translateY(0) scale(0.98);
+    }
+    button.copy:disabled {
+      background: linear-gradient(180deg, #0f8040, #0a6030);
+      border-color: #0a6030;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+    
+    /* 响应式设计 */
+    @media (max-width: 768px) {
+      .toc { width: 280px; padding: 70px 16px 16px; }
+      .main { padding: 20px; }
+      .topbar { padding-top: 60px; }
+      h1 { font-size: 24px; }
+      .card.nested { margin-left: 12px; }
+      .card.nested.level-2 { margin-left: 24px; }
+      .card.nested.level-3 { margin-left: 36px; }
+    }
+    
+    /* 滚动条样式 */
+    .toc::-webkit-scrollbar { width: 8px; }
+    .toc::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); border-radius: 4px; }
+    .toc::-webkit-scrollbar-thumb { background: rgba(78, 161, 255, 0.3); border-radius: 4px; }
+    .toc::-webkit-scrollbar-thumb:hover { background: rgba(78, 161, 255, 0.5); }
+  </style>
+</head>
+<body>
+  <button class="toc-toggle" onclick="toggleToc()">
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+    <span>目录</span>
+  </button>
+  <div class="toc-overlay" onclick="closeToc()"></div>
+  <div class="toc">
+    <h2>📑 目录</h2>
+    <ul class="toc-list"><li><a href="#block-2" onclick="closeToc()">2. 下载安装</a></li><li><a href="#block-3" onclick="closeToc()">3. 查看已安装证书信息</a></li><li><a href="#block-4" onclick="closeToc()">4. 强制续签证书</a></li><li><a href="#block-5" onclick="closeToc()">5. 指定 Let&#x27;s Encrypt</a></li><li><a href="#block-6" onclick="closeToc()">6. 申请域名证书</a></li><li><a href="#block-7" onclick="closeToc()">7. list</a></li><li><a href="#block-8" onclick="closeToc()">8. 脚本，检测更新ssl证书后重启nginx</a></li></ul>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div><h1>ACME</h1><div class="sub">单列展示 · 支持嵌套块 · 层级编号 · 自动目录 · 即时搜索</div></div>
+      <div class="search"><input id="q" type="search" placeholder="🔍 搜索命令或注释…" /></div>
+    </div>
+    <div class="counter">共 <span id="total"></span> 条命令</div>
+    <div id="list" class="list">
+
+        <div class="card" data-text="">
+          <div class="comment no-text" id="block-1">1</div>
+          
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-1">1.1</div>
+          <div class="cmdline" data-text="cd acme.sh"><span>cd acme.sh</span><button class="copy" onclick="copyText(&#x27;cd acme.sh&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-2">1.2</div>
+          <div class="cmdline" data-text="./acme.sh --install -m abc@gmail.com"><span>./acme.sh --install -m abc@gmail.com</span><button class="copy" onclick="copyText(&#x27;./acme.sh --install -m abc@gmail.com&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-3">1.3</div>
+          <div class="cmdline" data-text="source ~/.bashrc"><span>source ~/.bashrc</span><button class="copy" onclick="copyText(&#x27;source ~/.bashrc&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-4">1.4</div>
+          <div class="cmdline" data-text="acme.sh --register-account -m abc@gmail.com --server zerossl"><span>acme.sh --register-account -m abc@gmail.com --server zerossl</span><button class="copy" onclick="copyText(&#x27;acme.sh --register-account -m abc@gmail.com --server zerossl&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-5">1.5</div>
+          <div class="cmdline" data-text="export cf_token="1b9x4x5ajj-""><span>export CF_Token="1B9x4x5ajj-"</span><button class="copy" onclick="copyText(&#x27;export CF_Token=&quot;1B9x4x5ajj-&quot;&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-6">1.6</div>
+          <div class="cmdline" data-text="export cf_zone_id="a88c2e44116""><span>export CF_Zone_ID="a88c2e44116"</span><button class="copy" onclick="copyText(&#x27;export CF_Zone_ID=&quot;a88c2e44116&quot;&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-7">1.7</div>
+          <div class="cmdline" data-text="export cf_account_id="a36ef8365""><span>export CF_Account_ID="a36ef8365"</span><button class="copy" onclick="copyText(&#x27;export CF_Account_ID=&quot;a36ef8365&quot;&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-8">1.8</div>
+          <div class="cmdline" data-text="acme.sh --issue --dns dns_cf -d *.123.xyz -d 123.xyz -k ec-384 --listen-v6 --force"><span>acme.sh --issue --dns dns_cf -d *.123.xyz -d 123.xyz -k ec-384 --listen-v6 --force</span><button class="copy" onclick="copyText(&#x27;acme.sh --issue --dns dns_cf -d *.123.xyz -d 123.xyz -k ec-384 --listen-v6 --force&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-1-9">1.9</div>
+          <div class="codeblock-container" data-text="acme.sh --install-cert -d *.123.xyz \ --key-file /etc/nginx/ssl/123/123.key \ --fullchain-file /etc/nginx/ssl/123/fullchain.cer \ --cert-file /etc/nginx/ssl/123/chain.cer \ --ecc --reloadcmd &quot;systemctl reload nginx&quot;"><pre class="codeblock preview"><code>acme.sh --install-cert -d *.123.xyz \
+--key-file /etc/nginx/ssl/123/123.key \</code></pre><pre class="codeblock full" style="display:none;"><code>acme.sh --install-cert -d *.123.xyz \
+--key-file /etc/nginx/ssl/123/123.key \
+--fullchain-file /etc/nginx/ssl/123/fullchain.cer \
+--cert-file /etc/nginx/ssl/123/chain.cer \
+--ecc --reloadcmd "systemctl reload nginx"</code></pre><button class="toggle" onclick="toggleCode(this)">▼</button><button class="copy" onclick="copyText(&#x27;acme.sh --install-cert -d *.123.xyz \\\n--key-file /etc/nginx/ssl/123/123.key \\\n--fullchain-file /etc/nginx/ssl/123/fullchain.cer \\\n--cert-file /etc/nginx/ssl/123/chain.cer \\\n--ecc --reloadcmd &quot;systemctl reload nginx&quot;&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card" data-text="下载安装">
+          <div class="comment top-comment" id="block-2">2. 下载安装</div>
+          
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-2-1">2.1</div>
+          <div class="cmdline" data-text="git clone https://gitee.com/neilpang/acme.sh.git"><span>git clone https://gitee.com/neilpang/acme.sh.git</span><button class="copy" onclick="copyText(&#x27;git clone https://gitee.com/neilpang/acme.sh.git&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-2-2">2.2</div>
+          <div class="cmdline" data-text="cd acme.sh"><span>cd acme.sh</span><button class="copy" onclick="copyText(&#x27;cd acme.sh&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-2-3">2.3</div>
+          <div class="cmdline" data-text="./acme.sh --install -m my@example.com"><span>./acme.sh --install -m my@example.com</span><button class="copy" onclick="copyText(&#x27;./acme.sh --install -m my@example.com&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-2-4">2.4</div>
+          <div class="cmdline" data-text="wget -o -  https://get.acme.sh | sh -s email=my@example.com"><span>wget -O -  https://get.acme.sh | sh -s email=my@example.com</span><button class="copy" onclick="copyText(&#x27;wget -O -  https://get.acme.sh | sh -s email=my@example.com&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-2-5">2.5</div>
+          <div class="cmdline" data-text="source ~/.bashrc"><span>source ~/.bashrc</span><button class="copy" onclick="copyText(&#x27;source ~/.bashrc&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card" data-text="查看已安装证书信息">
+          <div class="comment top-comment" id="block-3">3. 查看已安装证书信息</div>
+          <div class="cmdline" data-text="acme.sh --info -d example.com"><span>acme.sh --info -d example.com</span><button class="copy" onclick="copyText(&#x27;acme.sh --info -d example.com&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card" data-text="强制续签证书">
+          <div class="comment top-comment" id="block-4">4. 强制续签证书</div>
+          <div class="cmdline" data-text="acme.sh --renew -d example.com --force"><span>acme.sh --renew -d example.com --force</span><button class="copy" onclick="copyText(&#x27;acme.sh --renew -d example.com --force&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card" data-text="指定 let&#x27;s encrypt">
+          <div class="comment top-comment" id="block-5">5. 指定 Let&#x27;s Encrypt</div>
+          <div class="cmdline" data-text="acme.sh --register-account -m my@example.com --server letsencrypt"><span>acme.sh --register-account -m my@example.com --server letsencrypt</span><button class="copy" onclick="copyText(&#x27;acme.sh --register-account -m my@example.com --server letsencrypt&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card" data-text="申请域名证书">
+          <div class="comment top-comment" id="block-6">6. 申请域名证书</div>
+          
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-6-1">6.1</div>
+          <div class="cmdline" data-text="acme.sh --register-account -m ea@gmail.com --server zerossl"><span>acme.sh --register-account -m ea@gmail.com --server zerossl</span><button class="copy" onclick="copyText(&#x27;acme.sh --register-account -m ea@gmail.com --server zerossl&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-6-2">6.2</div>
+          <div class="cmdline" data-text="acme.sh --issue --dns dns_cf -d *.o.com -d abc.com -k ec-256 --listen-v6"><span>acme.sh --issue --dns dns_cf -d *.o.com -d abc.com -k ec-256 --listen-v6</span><button class="copy" onclick="copyText(&#x27;acme.sh --issue --dns dns_cf -d *.o.com -d abc.com -k ec-256 --listen-v6&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-6-3">6.3</div>
+          <div class="cmdline" data-text="acme.sh --install-cert -d *.o.com --key-file /nginx/oa/abc.key --fullchain-file /nginx/oa/fullchain.cer --ecc --reloadcmd "echo success""><span>acme.sh --install-cert -d *.o.com --key-file /nginx/oa/abc.key --fullchain-file /nginx/oa/fullchain.cer --ecc --reloadcmd "echo success"</span><button class="copy" onclick="copyText(&#x27;acme.sh --install-cert -d *.o.com --key-file /nginx/oa/abc.key --fullchain-file /nginx/oa/fullchain.cer --ecc --reloadcmd &quot;echo success&quot;&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-6-4">6.4</div>
+          <div class="cmdline" data-text="acme.sh --issue --dns dns_cf -d *.1.xyz -d 1.xyz -k ec-384 --listen-v6 --force"><span>acme.sh --issue --dns dns_cf -d *.1.xyz -d 1.xyz -k ec-384 --listen-v6 --force</span><button class="copy" onclick="copyText(&#x27;acme.sh --issue --dns dns_cf -d *.1.xyz -d 1.xyz -k ec-384 --listen-v6 --force&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-6-5">6.5</div>
+          <div class="cmdline" data-text="acme.sh --install-cert -d *.1.xyz --key-file /nginx/xy/1.key --fullchain-file /nginx/xy/fullchain.cer --ecc --reloadcmd "echo success""><span>acme.sh --install-cert -d *.1.xyz --key-file /nginx/xy/1.key --fullchain-file /nginx/xy/fullchain.cer --ecc --reloadcmd "echo success"</span><button class="copy" onclick="copyText(&#x27;acme.sh --install-cert -d *.1.xyz --key-file /nginx/xy/1.key --fullchain-file /nginx/xy/fullchain.cer --ecc --reloadcmd &quot;echo success&quot;&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-6-6">6.6</div>
+          <div class="cmdline" data-text="acme.sh —cron"><span>acme.sh —cron</span><button class="copy" onclick="copyText(&#x27;acme.sh —cron&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card" data-text="list">
+          <div class="comment top-comment" id="block-7">7. list</div>
+          
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-1">7.1</div>
+          <div class="cmdline" data-text="acme.sh  --list"><span>acme.sh  --list</span><button class="copy" onclick="copyText(&#x27;acme.sh  --list&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-2">7.2</div>
+          <div class="cmdline" data-text="acme.sh  --remove  -d abc.com"><span>acme.sh  --remove  -d abc.com</span><button class="copy" onclick="copyText(&#x27;acme.sh  --remove  -d abc.com&#x27;, this)">复制</button></div>
+        </div>
+        <div class="card nested" data-text="">
+          <div class="comment no-text" id="block-7-3">7.3</div>
+          <div class="cmdline" data-text="acme.sh  --remove  -d *.abc.com"><span>acme.sh  --remove  -d *.abc.com</span><button class="copy" onclick="copyText(&#x27;acme.sh  --remove  -d *.abc.com&#x27;, this)">复制</button></div>
+        </div>
+        </div>
+        <div class="card" data-text="脚本，检测更新ssl证书后重启nginx">
+          <div class="comment top-comment" id="block-8">8. 脚本，检测更新ssl证书后重启nginx</div>
+          <div class="codeblock-container" data-text="#!/bin/bash # 询问用户输入多个 ssl 证书目录 read -p &quot;请输入 ssl 证书目录（多个目录请用空格分隔）: &quot; -a ssl_dirs # 检查目录是否存在 for dir in &quot;${ssl_dirs[@]}&quot;; do if [ ! -d &quot;$dir&quot; ]; then echo &quot;错误：目录 $dir 不存在，请检查路径是否正确。&quot; exit 1 fi done # 设置 unit 文件的路径 path_unit_file=&quot;/etc/systemd/system/nginx-cert-monitor.path&quot; service_unit_file=&quot;/etc/systemd/system/nginx-cert-restart.service&quot; # 创建 path unit 文件 echo &quot;创建 path unit 文件...&quot; sudo tee $path_unit_file &gt; /dev/null &lt;&lt;eol [unit] description=monitor nginx ssl certificates for changes [path] eol # 为每个输入的目录添加 pathmodified 条目 for dir in &quot;${ssl_dirs[@]}&quot;; do echo &quot;pathmodified=$dir&quot; | sudo tee -a $path_unit_file &gt; /dev/null done # 继续添加关联的 service unit sudo tee -a $path_unit_file &gt; /dev/null &lt;&lt;eol unit=nginx-cert-restart.service [install] wantedby=multi-user.target eol echo &quot;path unit 文件已创建：$path_unit_file&quot; # 创建 service unit 文件 echo &quot;创建 service unit 文件...&quot; sudo tee $service_unit_file &gt; /dev/null &lt;&lt;eol [unit] description=restart nginx when ssl certificates change wants=nginx-cert-monitor.path [service] execstart=/bin/systemctl restart nginx [install] wantedby=multi-user.target eol echo &quot;service unit 文件已创建：$service_unit_file&quot; # 重新加载 systemd 守护进程 echo &quot;重新加载 systemd 守护进程...&quot; sudo systemctl daemon-reload # 启用并启动 path unit echo &quot;启用并启动 nginx 证书监控...&quot; sudo systemctl enable nginx-cert-monitor.path sudo systemctl start nginx-cert-monitor.path # 检查 path unit 状态 echo &quot;nginx 证书监控已启用。当前状态：&quot; sudo systemctl status nginx-cert-monitor.path"><pre class="codeblock preview"><code>#!/bin/bash
+</code></pre><pre class="codeblock full" style="display:none;"><code>#!/bin/bash
+
+# 询问用户输入多个 SSL 证书目录
+read -p "请输入 SSL 证书目录（多个目录请用空格分隔）: " -a ssl_dirs
+
+# 检查目录是否存在
+for dir in "${ssl_dirs[@]}"; do
+  if [ ! -d "$dir" ]; then
+    echo "错误：目录 $dir 不存在，请检查路径是否正确。"
+    exit 1
+  fi
+done
+
+# 设置 unit 文件的路径
+path_unit_file="/etc/systemd/system/nginx-cert-monitor.path"
+service_unit_file="/etc/systemd/system/nginx-cert-restart.service"
+
+# 创建 Path Unit 文件
+echo "创建 Path Unit 文件..."
+sudo tee $path_unit_file &gt; /dev/null &lt;&lt;EOL
+[Unit]
+Description=Monitor Nginx SSL certificates for changes
+
+[Path]
+EOL
+
+# 为每个输入的目录添加 PathModified 条目
+for dir in "${ssl_dirs[@]}"; do
+  echo "PathModified=$dir" | sudo tee -a $path_unit_file &gt; /dev/null
+done
+
+# 继续添加关联的 Service Unit
+sudo tee -a $path_unit_file &gt; /dev/null &lt;&lt;EOL
+Unit=nginx-cert-restart.service
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+echo "Path Unit 文件已创建：$path_unit_file"
+
+# 创建 Service Unit 文件
+echo "创建 Service Unit 文件..."
+sudo tee $service_unit_file &gt; /dev/null &lt;&lt;EOL
+[Unit]
+Description=Restart Nginx when SSL certificates change
+Wants=nginx-cert-monitor.path
+
+[Service]
+ExecStart=/bin/systemctl restart nginx
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+echo "Service Unit 文件已创建：$service_unit_file"
+
+# 重新加载 systemd 守护进程
+echo "重新加载 systemd 守护进程..."
+sudo systemctl daemon-reload
+
+# 启用并启动 Path Unit
+echo "启用并启动 Nginx 证书监控..."
+sudo systemctl enable nginx-cert-monitor.path
+sudo systemctl start nginx-cert-monitor.path
+
+# 检查 Path Unit 状态
+echo "Nginx 证书监控已启用。当前状态："
+sudo systemctl status nginx-cert-monitor.path</code></pre><button class="toggle" onclick="toggleCode(this)">▼</button><button class="copy" onclick="copyText(&#x27;#!/bin/bash\n\n# 询问用户输入多个 SSL 证书目录\nread -p &quot;请输入 SSL 证书目录（多个目录请用空格分隔）: &quot; -a ssl_dirs\n\n# 检查目录是否存在\nfor dir in &quot;${ssl_dirs[@]}&quot;; do\n  if [ ! -d &quot;$dir&quot; ]; then\n    echo &quot;错误：目录 $dir 不存在，请检查路径是否正确。&quot;\n    exit 1\n  fi\ndone\n\n# 设置 unit 文件的路径\npath_unit_file=&quot;/etc/systemd/system/nginx-cert-monitor.path&quot;\nservice_unit_file=&quot;/etc/systemd/system/nginx-cert-restart.service&quot;\n\n# 创建 Path Unit 文件\necho &quot;创建 Path Unit 文件...&quot;\nsudo tee $path_unit_file &gt; /dev/null &lt;&lt;EOL\n[Unit]\nDescription=Monitor Nginx SSL certificates for changes\n\n[Path]\nEOL\n\n# 为每个输入的目录添加 PathModified 条目\nfor dir in &quot;${ssl_dirs[@]}&quot;; do\n  echo &quot;PathModified=$dir&quot; | sudo tee -a $path_unit_file &gt; /dev/null\ndone\n\n# 继续添加关联的 Service Unit\nsudo tee -a $path_unit_file &gt; /dev/null &lt;&lt;EOL\nUnit=nginx-cert-restart.service\n\n[Install]\nWantedBy=multi-user.target\nEOL\n\necho &quot;Path Unit 文件已创建：$path_unit_file&quot;\n\n# 创建 Service Unit 文件\necho &quot;创建 Service Unit 文件...&quot;\nsudo tee $service_unit_file &gt; /dev/null &lt;&lt;EOL\n[Unit]\nDescription=Restart Nginx when SSL certificates change\nWants=nginx-cert-monitor.path\n\n[Service]\nExecStart=/bin/systemctl restart nginx\n\n[Install]\nWantedBy=multi-user.target\nEOL\n\necho &quot;Service Unit 文件已创建：$service_unit_file&quot;\n\n# 重新加载 systemd 守护进程\necho &quot;重新加载 systemd 守护进程...&quot;\nsudo systemctl daemon-reload\n\n# 启用并启动 Path Unit\necho &quot;启用并启动 Nginx 证书监控...&quot;\nsudo systemctl enable nginx-cert-monitor.path\nsudo systemctl start nginx-cert-monitor.path\n\n# 检查 Path Unit 状态\necho &quot;Nginx 证书监控已启用。当前状态：&quot;\nsudo systemctl status nginx-cert-monitor.path&#x27;, this)">复制</button></div>
+        </div>
+    </div>
+  </div>
+  <script>
+    function toggleToc() {
+      const toc = document.querySelector('.toc');
+      const overlay = document.querySelector('.toc-overlay');
+      toc.classList.toggle('open');
+      overlay.classList.toggle('open');
+    }
+    
+    function closeToc() {
+      const toc = document.querySelector('.toc');
+      const overlay = document.querySelector('.toc-overlay');
+      toc.classList.remove('open');
+      overlay.classList.remove('open');
+    }
+    
+    function copyText(text, btn) {
+      navigator.clipboard.writeText(text).then(() => {
+        const old = btn.textContent;
+        btn.textContent = "✓ 已复制";
+        btn.disabled = true;
+        setTimeout(() => { 
+          btn.textContent = old; 
+          btn.disabled = false; 
+        }, 1500);
+      }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        const old = btn.textContent;
+        btn.textContent = "✓ 已复制";
+        btn.disabled = true;
+        setTimeout(() => { 
+          btn.textContent = old; 
+          btn.disabled = false; 
+        }, 1500);
+      });
+    }
+    
+    function toggleCode(btn) {
+      const container = btn.parentElement;
+      const preview = container.querySelector('.preview');
+      const full = container.querySelector('.full');
+      if (full.style.display === 'none') {
+        preview.style.display = 'none';
+        full.style.display = 'block';
+        btn.textContent = '▲';
+      } else {
+        preview.style.display = 'block';
+        full.style.display = 'none';
+        btn.textContent = '▼';
+      }
+    }
+    
+    const q = document.getElementById('q');
+    const cards = Array.from(document.querySelectorAll('.card'));
+    const total = document.getElementById('total');
+
+    function updateCount() {
+      let visibleItems = 0;
+      cards.forEach(c => {
+        const contents = Array.from(c.querySelectorAll('.cmdline, .codeblock-container'));
+        let isCardVisible = false;
+        contents.forEach(content => {
+          if (content.style.display !== 'none') {
+            visibleItems++;
+            isCardVisible = true;
+          }
+        });
+      });
+      total.textContent = visibleItems;
+    }
+
+    q.addEventListener('input', () => {
+      const val = q.value.toLowerCase().trim();
+      cards.forEach(c => {
+        const commentText = c.getAttribute('data-text') || '';
+        const contents = Array.from(c.querySelectorAll('.cmdline, .codeblock-container'));
+        let hasVisibleContent = false;
+        
+        if (!val) {
+          contents.forEach(content => content.style.display = '');
+          hasVisibleContent = true;
+        } else {
+          const matchCardComment = commentText.includes(val);
+          contents.forEach(content => {
+            const text = content.getAttribute('data-text') || '';
+            if (matchCardComment || text.includes(val)) {
+              content.style.display = '';
+              hasVisibleContent = true;
+            } else {
+              content.style.display = 'none';
+            }
+          });
+        }
+        c.style.display = hasVisibleContent ? '' : 'none';
+      });
+      updateCount();
+    });
+    
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          setTimeout(closeToc, 300);
+        }
+      });
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        updateCount();
+    });
+    
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeToc();
+      }
+    });
+  </script>
+</body>
+</html>

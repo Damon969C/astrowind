@@ -1,0 +1,23 @@
+
+.agents/
+.codex/
+.superpowers/
+
+# Local checkout used only as a historical dist comparison target.
+git/
+
+# Astro generated output and local dependencies.
+astrowind_merged/node_modules/
+astrowind_merged/dist/
+astrowind_merged/.astro/
+astrowind_merged/.env
+astrowind_merged/.env.*
+
+# Workspace-local helper copies, not part of the maintained static site.
+/restore_bundle.py
+/sync_clash_proxy_groups.py
+/wg-client-manage.sh
+
+*.log
+.DS_Store
+Thumbs.db

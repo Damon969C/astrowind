@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PVE 禁用 PCIe ASPM 指南</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            background-color: #f9f9f9;
+            color: #333;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 25px;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 5px;
+        }
+        h1 {
+            font-size: 2em;
+            text-align: center;
+        }
+        h2 {
+            font-size: 1.6em;
+            margin-top: 30px;
+        }
+        h3 {
+            font-size: 1.3em;
+            margin-top: 20px;
+            border-bottom: none;
+        }
+        p, li {
+            font-size: 1em;
+        }
+        ul {
+            padding-left: 20px;
+        }
+        .code-container {
+            position: relative;
+            background-color: #2d2d2d;
+            border-radius: 5px;
+            margin: 15px 0;
+            overflow: hidden;
+        }
+        pre {
+            margin: 0;
+            padding: 15px;
+            color: #f8f8f2;
+            overflow-x: auto;
+        }
+        code {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-size: 0.95em;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+            opacity: 0.8;
+            transition: all 0.2s ease;
+        }
+        .copy-btn:hover {
+            background-color: #0056b3;
+            opacity: 1;
+        }
+        .copy-btn:active {
+            transform: scale(0.95);
+        }
+        .copy-btn.copied {
+            background-color: #28a745;
+        }
+        blockquote {
+            background-color: #fdfae5;
+            border-left: 5px solid #f0ad4e;
+            padding: 10px 15px;
+            margin: 15px 0;
+        }
+        hr {
+            border: 0;
+            height: 1px;
+            background-color: #ecf0f1;
+            margin: 30px 0;
+        }
+        .example-code {
+            background: #f4f4f4;
+            color: #333;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>PVE 系统如何使用内核选项禁用 PCIe 省电 (ASPM)</h1>
+        
+        <p>在 Proxmox VE (PVE) 系统中，您可以通过添加内核选项 <code>pcie_aspm=off</code> 来禁用 PCIe 的主动状态电源管理 (ASPM)。</p>
+
+        <p>PVE 系统根据其安装方式（特别是文件系统和启动模式）使用两种不同的引导加载程序：<strong>GRUB</strong> 或 <strong>systemd-boot</strong>。您<strong>必须</strong>首先确定您的系统正在使用哪一种，然后才能正确应用设置。</p>
+
+        <hr>
+
+        <h2>步骤一：检查您的 PVE 系统使用的引导加载程序</h2>
+
+        <p>您可以通过以下任一方法来确定您的引导加载程序。</p>
+
+        <h3>方法 A：检查 <code>proxmox-boot-tool</code>（推荐）</h3>
+        <p>在 PVE 主机的 Shell (CLI) 中运行以下命令：</p>
+        <div class="code-container">
+            <button class="copy-btn">复制</button>
+            <pre><code>proxmox-boot-tool status</code></pre>
+        </div>
+        <ul>
+            <li>如果您看到类似 <code>Re-executing '/usr/sbin/proxmox-boot-tool' ...</code> 的输出，并且它列出了您的 EFI 系统分区 (ESP)，那么您正在使用 <strong>systemd-boot</strong>。</li>
+            <li>如果您看到 <code>proxmox-boot-tool: command not found</code> 或其他错误，您很可能在使用 <strong>GRUB</strong>。</li>
+        </ul>
+
+        <h3>方法 B：检查 <code>efibootmgr</code> (适用于 UEFI 系统)</h3>
+        <p>如果您的系统使用 UEFI 启动，此命令非常可靠：</p>
+        <div class="code-container">
+            <button class="copy-btn">复制</button>
+            <pre><code>efibootmgr -v</code></pre>
+        </div>
+        <p>查看输出：</p>
+        <ul>
+            <li>如果启动项指向 <code>...File(\EFI\proxmox\grubx64.efi)...</code>，您使用的是 <strong>GRUB</strong>。</li>
+            <li>如果启动项指向 <code>...File(\EFI\systemd\systemd-bootx64.efi)...</code>，您使用的是 <strong>systemd-boot</strong>。</li>
+        </ul>
+
+        <h3>方法 C：检查文件是否存在</h3>
+        <ul>
+            <li>运行 <code>ls /etc/default/grub</code>。如果该文件<strong>存在</strong>，您很可能在使用 <strong>GRUB</strong>。</li>
+        </ul>
+        <div class="code-container">
+            <button class="copy-btn">复制</button>
+            <pre><code>ls /etc/default/grub</code></pre>
+        </div>
+        <ul>
+            <li>运行 <code>ls /etc/kernel/cmdline</code>。如果该文件<strong>存在</strong>，您很可能在使用 <strong>systemd-boot</strong>。</li>
+        </ul>
+        <div class="code-container">
+            <button class="copy-btn">复制</button>
+            <pre><code>ls /etc/kernel/cmdline</code></pre>
+        </div>
+
+        <blockquote>
+            <p><strong>经验法则：</strong></p>
+            <ul>
+                <li><strong>systemd-boot</strong> 通常用于在 <strong>UEFI 模式</strong>下安装并使用 <strong>ZFS</strong> 作为根文件系统的系统。</li>
+                <li><strong>GRUB</strong> 通常用于 <strong>Legacy/BIOS 模式</strong>安装，或在 <strong>UEFI 模式</strong>下安装并使用 <strong>ext4/LVM</strong> 的系统。</li>
+            </ul>
+        </blockquote>
+
+        <hr>
+
+        <h2>步骤二：根据您的引导加载程序禁用 ASPM</h2>
+        <p>请<strong>仅</strong>遵循适用于您系统的方法。</p>
+
+        <h3>选项 A：如果您的 PVE 使用 systemd-boot</h3>
+        <p>这是为 ZFS on UEFI 系统添加内核参数的推荐方法。</p>
+
+        <p><strong>1. 编辑内核命令行文件：</strong></p>
+        <p>使用 <code>nano</code> 或您喜欢的文本编辑器打开 <code>/etc/kernel/cmdline</code> 文件。</p>
+        <div class="code-container">
+            <button class="copy-btn">复制</button>
+            <pre><code>nano /etc/kernel/cmdline</code></pre>
+        </div>
+
+        <p><strong>2. 添加参数：</strong></p>
+        <p>该文件通常只有一行。在这一行的<strong>末尾</strong>，添加一个空格，然后输入 <code>pcie_aspm=off</code>。</p>
+        
+        <p><em>修改前示例：</em></p>
+        <pre class="example-code">root=ZFS=rpool/ROOT/pve-1 boot=zfs</pre>
+        
+        <p><em>修改后示例：</em></p>
+        <pre class="example-code">root=ZFS=rpool/ROOT/pve-1 boot=zfs pcie_aspm=off</pre>
+
+        <p><strong>3. 保存并关闭</strong>文件 (在 <code>nano</code> 中, 按 <code>Ctrl+O</code>, <code>Enter</code>, 然后 <code>Ctrl+X</code>)。</p>
+
+        <p><strong>4. 刷新引导加载程序：</strong></p>
+        <p>这一步至关重要。运行以下命令以应用更改：</p>
+        <div class="code-container">
+            <button class="copy-btn">复制</button>
+            <pre><code>proxmox-boot-tool refresh</code></pre>
+        </div>
+
+        <p><strong>5. 重启系统：</strong></p>
+        <div class="code-container">
+            <button class="copy-btn">复制</button>
+            <pre><code>reboot</code></pre>
+        </div>
+
+        <h3>选项 B：如果您的 PVE 使用 GRUB</h3>
+        <p>这是用于 Legacy/BIOS 或 ext4/LVM 系统的标准方法。</p>
+
+        <p><strong>1. 编辑 GRUB 配置文件：</strong></p>
+        <p>使用 <code>nano</code> 或您喜欢的文本编辑器打开 <code>/etc/default/grub</code> 文件。</p>
+        <div class="code-container">
+            <button class="copy-btn">复制</button>
+            <pre><code>nano /etc/default/grub</code></pre>
+        </div>
+
+        <p><strong>2. 找到并修改 <code>GRUB_CMDLINE_LINUX_DEFAULT</code>：</strong></p>
+        <p>找到以 <code>GRUB_CMDLINE_LINUX_DEFAULT=</code> 开头的行。在该行引号内的<strong>末尾</strong>，添加 <code>pcie_aspm=off</code>。</p>
+
+        <p><em>修改前示例：</em></p>
+        <pre class="example-code">GRUB_CMDLINE_LINUX_DEFAULT="quiet"</pre>
+        
+        <p><em>修改后示例：</em></p>
+        <pre class="example-code">GRUB_CMDLINE_LINUX_DEFAULT="quiet pcie_aspm=off"</pre>
+
+        <p><strong>3. 保存并关闭</strong>文件 (在 <code>nano</code> 中, 按 <code>Ctrl+O</code>, <code>Enter</code>, 然后 <code>Ctrl+X</code>)。</p>
+
+        <p><strong>4. 更新 GRUB：</strong></p>
+        <p>运行以下命令以重新生成 GRUB 配置文件：</p>
+        <div class="code-container">
+            <button class="copy-btn">复制</button>
+            <pre><code>update-grub</code></pre>
+        </div>
+
+        <p><strong>5. 重启系统：</strong></p>
+        <div class="code-container">
+            <button class="copy-btn">复制</button>
+            <pre><code>reboot</code></pre>
+        </div>
+
+        <hr>
+
+        <h2>步骤三：验证更改是否生效</h2>
+        <p>系统重启后，登录到 PVE 主机的 Shell 并运行以下命令：</p>
+        <div class="code-container">
+            <button class="copy-btn">复制</button>
+            <pre><code>cat /proc/cmdline</code></pre>
+        </div>
+        <p>检查命令的输出。您应该能在文本行中看到您添加的 <code>pcie_aspm=off</code> 参数。如果看到了，说明禁用 ASPM 的内核选项已成功应用。</p>
+
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.querySelectorAll('.copy-btn').forEach(button => {
+                button.addEventListener('click', () => {
+                    const codeBlock = button.nextElementSibling;
+                    const code = codeBlock.querySelector('code').innerText;
+                    
+                    navigator.clipboard.writeText(code).then(() => {
+                        button.innerText = '已复制!';
+                        button.classList.add('copied');
+                        
+                        setTimeout(() => {
+                            button.innerText = '复制';
+                            button.classList.remove('copied');
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('无法复制文本: ', err);
+                        button.innerText = '失败';
+                        setTimeout(() => {
+                            button.innerText = '复制';
+                        }, 2000);
+                    });
+                });
+            });
+        });
+    </script>
+
+</body>
+</html>

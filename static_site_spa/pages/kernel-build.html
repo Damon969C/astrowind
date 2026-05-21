@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linux 内核编译与 Deb 打包指南</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .step {
+            margin-bottom: 30px;
+        }
+        .code-block {
+            position: relative;
+            background-color: #282c34;
+            color: #abb2bf;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 10px 0;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-size: 14px;
+        }
+        .code-block pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background-color 0.3s;
+        }
+        .copy-btn:hover {
+            background-color: #45a049;
+        }
+        .note {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffeeba;
+            padding: 10px 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Linux 内核编译与 Deb 打包完整指南</h1>
+        <p>这份指南包含了从零开始编译 Linux 最新内核并将其打包为 <code>.deb</code> 文件的所有完整步骤。</p>
+
+        <div class="step">
+            <h2>第一阶段：准备环境与源码</h2>
+            <p>安装所有必需的编译工具和打包依赖。</p>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>sudo apt-get update</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc dkms dwarves zstd rsync dpkg-dev debhelper libdw-dev</code></pre>
+            </div>
+            <p>下载并解压内核源码。</p>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>wget https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.0.3.tar.xz</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>tar xvf linux-7.0.3.tar.xz</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>cd linux-7.0.3</code></pre>
+            </div>
+        </div>
+
+        <div class="step">
+            <h2>第二阶段：配置内核</h2>
+            <p>复用当前系统的配置，这能保证新内核完美兼容你当前的硬件。</p>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>cp /boot/config-$(uname -r) .config</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>make olddefconfig</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>scripts/config --disable DEBUG_INFO</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>make olddefconfig</code></pre>
+            </div>
+            <div class="note">
+                <strong>说明：</strong> 禁用 <code>DEBUG_INFO</code> 可以极大地减少生成的包体积并显著加快编译速度。
+            </div>
+        </div>
+
+        <div class="step">
+            <h2>第三阶段：编译并生成 Deb 包</h2>
+            <p>使用全部 CPU 核心进行编译，并直接生成 Debian 安装包。</p>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>make bindeb-pkg -j$(nproc)</code></pre>
+            </div>
+            <div class="note">
+                <strong>提示：</strong> 这个过程可能会持续一段时间，具体取决于你的 CPU 性能。完成后，<code>.deb</code> 文件会生成在当前源码目录的<strong>上一级目录</strong>中。
+            </div>
+        </div>
+
+        <div class="step">
+            <h2>第四阶段：安装生成的内核包</h2>
+            <p>退回上一级目录并使用 <code>dpkg</code> 安装生成的 <code>.deb</code> 文件。</p>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>cd ..</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>sudo dpkg -i linux-image-*.deb linux-headers-*.deb</code></pre>
+            </div>
+        </div>
+
+        <div class="step">
+            <h2>第五阶段：重启与兼容性排查</h2>
+            <p>重启后，运行以下脚本进行全方位的兼容性排查。首先创建脚本并赋予执行权限：</p>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>cat &lt;&lt; 'EOF' &gt; check_kernel.sh
+#!/bin/bash
+echo "1. 内核版本: $(uname -r)"
+echo "2. 严重启动错误:"
+dmesg --level=emerg,alert,crit,err
+echo "3. 失败的系统服务:"
+systemctl --failed --no-pager --no-legend
+echo "4. 关键硬件驱动绑定状态:"
+lspci -k | awk '/VGA|Ethernet|Network/{print "\n"$0; getline; print; getline; print}'
+EOF</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>chmod +x check_kernel.sh</code></pre>
+            </div>
+            <p>然后使用 sudo 权限运行：</p>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>sudo ./check_kernel.sh</code></pre>
+            </div>
+        </div>
+
+        <div class="step">
+            <h2>附录：tmux 常用命令说明</h2>
+            <p>tmux 是一个终端复用器，允许你将长时间运行的任务（如编译）放在后台执行而不用担心 SSH 断开或终端关闭。以下是一些基础操作：</p>
+            
+            <p><strong>1. 创建并进入后台 tmux 会话 (例如命名为 deb_build)：</strong></p>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>tmux new-session -d -s deb_build 'make bindeb-pkg -j$(nproc) | tee deb_build.log; exec bash'</code></pre>
+            </div>
+            
+            <p><strong>2. 重新连接 (Attach) 到已存在的后台 tmux 会话中查看进度：</strong></p>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>tmux attach -t deb_build</code></pre>
+            </div>
+
+            <p><strong>3. 临时退出当前 tmux 会话，让它继续在后台运行 (Detach)：</strong></p>
+            <div class="note">
+                <strong>快捷键：</strong> 在 tmux 窗口中，先按下 <code>Ctrl + B</code>，松开后再按 <code>D</code>。
+            </div>
+
+            <p><strong>4. 查看当前正在运行的所有 tmux 会话列表：</strong></p>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>tmux ls</code></pre>
+            </div>
+
+            <p><strong>5. 强制关闭/杀死某个会话：</strong></p>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">复制</button>
+<pre><code>tmux kill-session -t deb_build</code></pre>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        function copyCode(btn) {
+            const code = btn.nextElementSibling.innerText;
+            navigator.clipboard.writeText(code).then(() => {
+                const originalText = btn.innerText;
+                btn.innerText = '已复制！';
+                btn.style.backgroundColor = '#2ecc71';
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                    btn.style.backgroundColor = '#4CAF50';
+                }, 2000);
+            }).catch(err => {
+                console.error('复制失败:', err);
+                btn.innerText = '复制失败';
+            });
+        }
+    </script>
+</body>
+</html>

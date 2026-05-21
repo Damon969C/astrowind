@@ -1,0 +1,32 @@
+---
+import Layout from '~/layouts/PageLayout.astro';
+import PageHero from '~/components/ops/PageHero.astro';
+import CategoryGrid from '~/components/ops/CategoryGrid.astro';
+import { downloadCategories, formatBytes } from '~/data/downloads';
+
+const metadata = {
+  title: '下载',
+  description: 'Debian 脚本、Windows 工具、注册表文件和图片素材下载。',
+};
+
+const cards = downloadCategories.map((category) => {
+  const size = category.items.reduce((sum, item) => sum + item.size, 0);
+  return {
+    title: category.title,
+    summary: category.description,
+    href: `/downloads/${category.slug}`,
+    meta: `${category.items.length} 个文件 · ${formatBytes(size)}`,
+  };
+});
+---
+
+<Layout metadata={metadata}>
+  <PageHero
+    eyebrow="Downloads"
+    title="脚本与工具下载"
+    summary="按用途整理 Debian 脚本、Windows 工具、注册表文件和图片素材。每个文件都提供说明、大小、类型、SHA-256 校验与下载按钮。"
+  />
+  <section class="mx-auto max-w-7xl px-4 pb-14 sm:px-6">
+    <CategoryGrid cards={cards} />
+  </section>
+</Layout>
