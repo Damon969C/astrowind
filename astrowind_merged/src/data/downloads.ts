@@ -28,7 +28,7 @@ export const downloadCategories = [
     title: 'Debian脚本',
     originalTitle: 'Debian 脚本',
     description:
-      'Linux/Debian 环境下的 zsh 离线恢复、代理服务恢复、Clash 分组同步、用户、sudo、IPv6、ACL、SSH 加固与 WireGuard 客户端管理脚本。',
+      'Linux/Debian 环境下的 zsh 离线恢复、代理服务恢复、sing-box 配置生成、Clash 分组同步、用户、sudo、IPv6、ACL、SSH 加固与 WireGuard 客户端管理脚本。',
     accent: '#166534',
     items: [
       {
@@ -69,6 +69,16 @@ export const downloadCategories = [
         sha256: 'c571c7e6489cb630ea8bcdfb57ddcb49cf3f02423b1a4d94f8282606420e1b5a',
         kind: 'Python Script',
         tags: ['debian', 'py', 'zsh', 'generator'],
+        isImage: false,
+      },
+      {
+        filename: 'generate_singbox_bundle.py',
+        path: '/downloads/debian/generate_singbox_bundle.py',
+        sourcePath: 'downloads/debian/generate_singbox_bundle.py',
+        size: 21013,
+        sha256: '3fd6b12bae1063209b5e417c5f739be5bc812c70354464221366e7e4467df544',
+        kind: 'Python Script',
+        tags: ['debian', 'py', 'sing-box', 'generator'],
         isImage: false,
       },
       {

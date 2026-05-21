@@ -171,6 +171,7 @@ if (fs.existsSync(root)) {
   );
   for (const filename of [
     "wg-client-manage.sh",
+    "generate_singbox_bundle.py",
     "restore_bundle.py",
     "sync_clash_proxy_groups.py",
   ]) {
