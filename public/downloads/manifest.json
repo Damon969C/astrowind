@@ -163,8 +163,8 @@
         {
           "filename": "zsh-re.py",
           "path": "downloads/debian/zsh-re.py",
-          "size": 19743487,
-          "sha256": "bd034a06927c96c393d0c57e86e14b752cedb19c7a1325b167f1ad2ae9be00c3",
+          "size": 19759267,
+          "sha256": "da8918dec920a70d15fcbe73a1511211451c4b84ee8df44d61044bea66c499dd",
           "kind": "Python Script",
           "tags": [
             "debian",
