@@ -2,6 +2,7 @@
 .agents/
 .codex/
 .superpowers/
+.antigravitycli/
 
 # Local checkout used only as a historical dist comparison target.
 git/
