@@ -60,8 +60,8 @@
         {
           "filename": "generate_singbox_bundle.py",
           "path": "downloads/debian/generate_singbox_bundle.py",
-          "size": 21985,
-          "sha256": "59451c5f5408126ccee1653499c376bc1bbd36f95491b7202bcd2848da4a3e7d",
+          "size": 32010,
+          "sha256": "9cab7993b8affde148f49811f3df3360dd956c64c97e492ff5816fd193410797",
           "kind": "Python Script",
           "tags": [
             "debian",
