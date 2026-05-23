@@ -220,11 +220,7 @@ def build_server_config(
             {
                 "type": "direct",
                 "tag": "direct",
-            },
-            {
-                "type": "block",
-                "tag": "block",
-            },
+            }
         ],
         "route": {
             "final": "direct",
@@ -427,13 +423,10 @@ def build_base_client_config(
             {
                 "type": "direct",
                 "tag": "direct",
-            },
-            {
-                "type": "block",
-                "tag": "block",
-            },
+            }
         ]
     )
+
     config = {
         "log": {
             "level": "info",
