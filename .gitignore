@@ -1,24 +1,28 @@
+# 忽略根目录下的所有文件和文件夹
+/*
 
+# 排除以下需要被 Git 追踪的核心目录和文件
+!/.gitignore
+!/README.md
+!/astrowind_merged/
+!/docs/
+!/public/
+!/static_site_spa/
+!/tools/
+
+# 全局忽略的项目（由于 /* 只作用于根目录，子目录中的以下文件夹仍需被忽略）
 .agents/
 .codex/
 .superpowers/
 .antigravitycli/
-
-# Local checkout used only as a historical dist comparison target.
 git/
 
-# Astro generated output and local dependencies.
+# 保留原有子目录内的特定忽略规则
 astrowind_merged/node_modules/
 astrowind_merged/dist/
 astrowind_merged/.astro/
 astrowind_merged/.env
 astrowind_merged/.env.*
-
-# Workspace-local helper copies, not part of the maintained static site.
-/restore_bundle.py
-/sync_clash_proxy_groups.py
-/generate_singbox_bundle.py
-/wg-client-manage.sh
 
 *.log
 .DS_Store
